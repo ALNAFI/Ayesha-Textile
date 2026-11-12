@@ -221,6 +221,22 @@ body {
   animation-delay: 140ms;
 }
 
+.customers-stagger .customers-section {
+  animation: page-enter var(--motion-page) var(--ease-out) both;
+}
+
+.customers-stagger .customers-section:nth-child(1) {
+  animation-delay: 40ms;
+}
+
+.customers-stagger .customers-section:nth-child(2) {
+  animation-delay: 90ms;
+}
+
+.customers-stagger .customers-section:nth-child(3) {
+  animation-delay: 140ms;
+}
+
 @keyframes auth-enter {
   from {
     opacity: 0;
@@ -261,7 +277,8 @@ body {
   .auth-enter-delay,
   .auth-error-enter,
   .dash-stagger .dash-section,
-  .files-stagger .files-section {
+  .files-stagger .files-section,
+  .customers-stagger .customers-section {
     animation: none;
     filter: none;
   }

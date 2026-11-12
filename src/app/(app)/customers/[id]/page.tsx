@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { CustomerBalance } from "@/components/customers/CustomerBalance";
+import { CustomerStatusBadge } from "@/components/customers/CustomerStatusBadge";
 import { FavoriteToggle } from "@/components/shared/FavoriteToggle";
 import { RecordRecentOpen } from "@/components/shared/RecordRecentOpen";
-import { classifyByFilename } from "@/lib/dashboard/classify";
-import { formatBDT } from "@/lib/dashboard/format";
-import { getDashboardSnapshot } from "@/lib/dashboard/snapshot";
+import { getCustomersSnapshot } from "@/lib/customers/summary";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -15,10 +15,8 @@ export async function generateMetadata({
   params,
 }: PageProps): Promise<Metadata> {
   const { id } = await params;
-  const snapshot = await getDashboardSnapshot(false);
-  const item = snapshot.searchItems.find(
-    (entry) => entry.id === id && entry.kind === "customer"
-  );
+  const snapshot = await getCustomersSnapshot(false);
+  const item = snapshot.items.find((entry) => entry.id === id);
   return {
     title: item?.customerName || "Customer",
   };
@@ -26,23 +24,19 @@ export async function generateMetadata({
 
 export default async function CustomerDetailPage({ params }: PageProps) {
   const { id } = await params;
-  const snapshot = await getDashboardSnapshot(false);
-  const item = snapshot.searchItems.find(
-    (entry) => entry.id === id && entry.kind === "customer"
-  );
+  const snapshot = await getCustomersSnapshot(false);
+  const item = snapshot.items.find((entry) => entry.id === id);
 
   if (!item) {
     notFound();
   }
-
-  const classification = classifyByFilename(item.fileName);
 
   return (
     <section className="space-y-6">
       <RecordRecentOpen
         id={item.id}
         kind="customer"
-        title={item.customerName || item.fileName}
+        title={item.customerName}
         subtitle={item.location}
         href={item.href}
       />
@@ -58,27 +52,29 @@ export default async function CustomerDetailPage({ params }: PageProps) {
               {item.location || "Location unavailable"} · {item.fileName}
             </p>
           </div>
-          {classification.kind === "customer" ? (
-            <FavoriteToggle
-              item={{
-                id: item.id,
-                customerName: item.customerName || item.fileName,
-                location: item.location,
-                fileName: item.fileName,
-                href: item.href,
-                savedAt: Date.now(),
-              }}
-            />
-          ) : null}
+          <FavoriteToggle
+            item={{
+              id: item.id,
+              customerName: item.customerName,
+              location: item.location,
+              fileName: item.fileName,
+              href: item.href,
+              savedAt: Date.now(),
+            }}
+          />
         </div>
 
-        <dl className="mt-8 grid gap-4 sm:grid-cols-2">
+        <dl className="mt-8 grid gap-4 sm:grid-cols-3">
           <div className="rounded-[var(--radius-md)] border border-border bg-background p-4">
-            <dt className="text-sm text-muted">Outstanding</dt>
-            <dd className="mt-2 text-xl font-semibold text-foreground">
-              {item.balanceAvailable && item.outstandingBalance != null
-                ? formatBDT(item.outstandingBalance)
-                : "Unavailable"}
+            <dt className="text-sm text-muted">Due Balance</dt>
+            <dd className="mt-2">
+              <CustomerBalance item={item} className="text-xl font-semibold" />
+            </dd>
+          </div>
+          <div className="rounded-[var(--radius-md)] border border-border bg-background p-4">
+            <dt className="text-sm text-muted">Status</dt>
+            <dd className="mt-2">
+              <CustomerStatusBadge status={item.status} />
             </dd>
           </div>
           <div className="rounded-[var(--radius-md)] border border-border bg-background p-4">
@@ -90,7 +86,7 @@ export default async function CustomerDetailPage({ params }: PageProps) {
         </dl>
 
         <p className="mt-6 text-sm text-muted">
-          Full ledger transactions will be available in a later module.
+          Full ledger transactions will be available in Module 07.
         </p>
 
         <Link

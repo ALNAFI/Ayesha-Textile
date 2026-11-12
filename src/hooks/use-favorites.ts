@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { FavoriteCustomer } from "@/lib/dashboard/types";
 
 const STORAGE_KEY = "ayesha-favorite-customers";
+const CHANGE_EVENT = "ayesha-favorites-changed";
 const MAX_FAVORITES = 50;
 
 function readFavorites(): FavoriteCustomer[] {
@@ -26,7 +27,11 @@ function readFavorites(): FavoriteCustomer[] {
 }
 
 function writeFavorites(items: FavoriteCustomer[]) {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items.slice(0, MAX_FAVORITES)));
+  window.localStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify(items.slice(0, MAX_FAVORITES))
+  );
+  window.dispatchEvent(new Event(CHANGE_EVENT));
 }
 
 export function useFavorites() {
@@ -37,14 +42,22 @@ export function useFavorites() {
     setFavorites(readFavorites());
     setReady(true);
 
+    function syncFromStorage() {
+      setFavorites(readFavorites());
+    }
+
     function onStorage(event: StorageEvent) {
       if (event.key === STORAGE_KEY) {
-        setFavorites(readFavorites());
+        syncFromStorage();
       }
     }
 
     window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    window.addEventListener(CHANGE_EVENT, syncFromStorage);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener(CHANGE_EVENT, syncFromStorage);
+    };
   }, []);
 
   const isFavorite = useCallback(
@@ -53,32 +66,25 @@ export function useFavorites() {
   );
 
   const toggleFavorite = useCallback((item: FavoriteCustomer) => {
-    setFavorites((current) => {
-      const exists = current.some((entry) => entry.id === item.id);
-      const next = exists
-        ? current.filter((entry) => entry.id !== item.id)
-        : [{ ...item, savedAt: Date.now() }, ...current].slice(0, MAX_FAVORITES);
-      writeFavorites(next);
-      return next;
-    });
+    const current = readFavorites();
+    const exists = current.some((entry) => entry.id === item.id);
+    const next = exists
+      ? current.filter((entry) => entry.id !== item.id)
+      : [{ ...item, savedAt: Date.now() }, ...current].slice(0, MAX_FAVORITES);
+    writeFavorites(next);
   }, []);
 
   const removeFavorite = useCallback((id: string) => {
-    setFavorites((current) => {
-      const next = current.filter((entry) => entry.id !== id);
-      writeFavorites(next);
-      return next;
-    });
+    const next = readFavorites().filter((entry) => entry.id !== id);
+    writeFavorites(next);
   }, []);
 
   const pruneMissing = useCallback((validIds: Set<string>) => {
-    setFavorites((current) => {
-      const next = current.filter((entry) => validIds.has(entry.id));
-      if (next.length !== current.length) {
-        writeFavorites(next);
-      }
-      return next;
-    });
+    const current = readFavorites();
+    const next = current.filter((entry) => validIds.has(entry.id));
+    if (next.length !== current.length) {
+      writeFavorites(next);
+    }
   }, []);
 
   return {
