@@ -44,7 +44,7 @@ export function Header({ pathname }: HeaderProps) {
   }
 
   return (
-    <header className="sticky top-0 z-30 flex h-[var(--header-height)] items-center gap-3 border-b border-border bg-surface px-4 sm:px-6">
+    <header className="sticky top-0 z-30 flex h-[var(--header-height)] items-center gap-3 border-b border-border bg-surface px-4 print:hidden sm:px-6">
       <div className="min-w-0 flex-1">
         <h1
           key={title}

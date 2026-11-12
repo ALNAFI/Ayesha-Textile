@@ -9,6 +9,9 @@ export function balanceFromParsed(
   }
 
   const ledger = parsed as CustomerLedger;
+  if (ledger.balanceReliable === false) {
+    return { balance: null, available: false };
+  }
   const raw = Number(ledger.outstandingBalance);
   if (!Number.isFinite(raw)) {
     return { balance: null, available: false };

@@ -19,7 +19,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     <aside
       data-collapsed={collapsed ? "true" : "false"}
       className={cn(
-        "app-sidebar fixed inset-y-0 left-0 z-40 hidden overflow-hidden border-r border-border bg-sidebar md:flex md:flex-col",
+        "app-sidebar fixed inset-y-0 left-0 z-40 hidden overflow-hidden border-r border-border bg-sidebar print:hidden md:flex md:flex-col",
         collapsed
           ? "w-[var(--sidebar-width-collapsed)]"
           : "w-[var(--sidebar-width)]"

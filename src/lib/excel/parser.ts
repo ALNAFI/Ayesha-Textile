@@ -214,7 +214,7 @@ export function parseExcelBuffer(
   try {
     const workbook = XLSX.read(buffer, {
       type: "buffer",
-      cellDates: true,
+      cellDates: false,
       cellNF: true,
     });
 
@@ -263,6 +263,10 @@ export function parseExcelBuffer(
         const { colMap } = detectedMatch;
         const rawEntries: Omit<LedgerEntry, "balance">[] = [];
         let initialBalance = 0;
+        let runningCheck = 0;
+        let balanceReliable = true;
+        let sawStatedBalance = false;
+        let seenMovement = false;
 
         for (let r = headerRowIdx + 1; r < sheetData.length; r++) {
           const row = sheetData[r];
@@ -273,55 +277,75 @@ export function parseExcelBuffer(
           const fileNoRaw = colMap.fileNo !== -1 ? row[colMap.fileNo] : "";
           const debitVal = parseCurrencyNumber(row[colMap.debit]);
           const creditVal = parseCurrencyNumber(row[colMap.credit]);
-          const balanceVal = parseCurrencyNumber(row[colMap.balance]);
+          const statedBalance = parseOptionalCurrency(row[colMap.balance]);
 
           const descStr = String(descRaw ?? "").trim();
           const fileNoStr = String(fileNoRaw ?? "").trim();
 
+          if (isSubtotalRow(descStr)) {
+            continue;
+          }
+
           const isSabek = /^(sabek|সাবেক|opening|forward|prev)/i.test(descStr);
-          if (isSabek && debitVal === 0 && creditVal === 0 && balanceVal > 0) {
-            initialBalance = balanceVal;
+          const hasDate =
+            dateRaw != null &&
+            String(dateRaw).trim() !== "" &&
+            String(dateRaw).trim() !== "—";
+          const balanceOnly =
+            debitVal === 0 && creditVal === 0 && statedBalance != null;
+
+          // Sabek, or a leading balance-only row, is the opening balance.
+          if (balanceOnly && (isSabek || !seenMovement)) {
+            initialBalance = statedBalance;
+            runningCheck = statedBalance;
+            sawStatedBalance = true;
+            if (!descStr && !hasDate && !fileNoStr) {
+              continue;
+            }
             rawEntries.push({
               id: `${fileId}-row-${r}`,
               date: formatLedgerDate(dateRaw),
-              description: "Opening Balance (Sabek)",
-              fileNo: fileNoStr || "OB",
+              description: descStr,
+              fileNo: fileNoStr,
               debit: 0,
               credit: 0,
             });
             continue;
           }
 
-          if (!descStr && !dateRaw && debitVal === 0 && creditVal === 0) {
+          if (!descStr && !hasDate && debitVal === 0 && creditVal === 0) {
             continue;
           }
 
-          let formattedDesc = descStr;
-          if (!formattedDesc) {
-            if (debitVal > 0 && creditVal === 0) {
-              formattedDesc = "Payment Received";
-            } else if (creditVal > 0 && debitVal === 0) {
-              formattedDesc = "Fabric Invoiced";
-            } else {
-              formattedDesc = "Transaction";
-            }
-          } else if (/^\d+$/.test(formattedDesc)) {
-            formattedDesc = `Challan #${formattedDesc}`;
+          if (debitVal !== 0 || creditVal !== 0) {
+            seenMovement = true;
           }
 
-          const entryDate = formatLedgerDate(dateRaw);
+          runningCheck = runningCheck + creditVal - debitVal;
+          if (statedBalance != null) {
+            sawStatedBalance = true;
+            if (Math.abs(runningCheck - statedBalance) > 1) {
+              balanceReliable = false;
+            }
+          }
 
           rawEntries.push({
             id: `${fileId}-row-${r}`,
-            date: entryDate,
-            description: formattedDesc,
-            fileNo: fileNoStr || `V-${r}`,
+            date: formatLedgerDate(dateRaw),
+            description: descStr,
+            fileNo: fileNoStr,
             debit: debitVal,
             credit: creditVal,
           });
         }
 
         const calculated = calculateLedgerBalances(rawEntries, initialBalance);
+        if (
+          sawStatedBalance &&
+          Math.abs(calculated.outstandingBalance - runningCheck) > 1
+        ) {
+          balanceReliable = false;
+        }
 
         const customerLedger: CustomerLedger = {
           id: fileId,
@@ -340,6 +364,7 @@ export function parseExcelBuffer(
           totalDebit: calculated.totalDebit,
           totalCredit: calculated.totalCredit,
           initialBalance,
+          balanceReliable,
         };
 
         return {
@@ -416,10 +441,120 @@ function parseCurrencyNumber(val: unknown): number {
   return isNaN(parsed) ? 0 : Math.round(parsed);
 }
 
+function isSubtotalRow(description: string): boolean {
+  return /^(total|sub\s*total|subtotal|grand\s*total|মোট)$/i.test(
+    description.trim()
+  );
+}
+
+function parseOptionalCurrency(val: unknown): number | null {
+  if (val == null || val === "") return null;
+  if (typeof val === "number") return Number.isNaN(val) ? null : Math.round(val);
+  const str = String(val).trim();
+  if (!str || str === "—" || str === "-") return null;
+  const parsed = parseFloat(str.replace(/[^0-9.-]/g, ""));
+  return Number.isNaN(parsed) ? null : Math.round(parsed);
+}
+
+function formatTwoDigitYear(year: number): number {
+  if (year >= 100) return year;
+  return year >= 70 ? 1900 + year : 2000 + year;
+}
+
+function formatDmy(day: number, month: number, year: number): string | null {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const fullYear = formatTwoDigitYear(year);
+  return `${String(day).padStart(2, "0")}/${String(month).padStart(2, "0")}/${fullYear}`;
+}
+
 function formatLedgerDate(dateVal: unknown): string {
-  if (!dateVal) return "—";
-  if (typeof dateVal === "number" && dateVal > 1000 && dateVal < 3000) {
-    return `FY-${dateVal}`;
+  if (dateVal == null || dateVal === "") return "—";
+
+  if (dateVal instanceof Date && !Number.isNaN(dateVal.getTime())) {
+    return (
+      formatDmy(
+        dateVal.getUTCDate(),
+        dateVal.getUTCMonth() + 1,
+        dateVal.getUTCFullYear()
+      ) || "—"
+    );
   }
-  return formatDate(String(dateVal));
+
+  if (typeof dateVal === "string") {
+    const trimmed = dateVal.trim();
+    const dmy = trimmed.match(/^(\d{1,2})[/. -](\d{1,2})[/. -](\d{2}|\d{4})$/);
+    if (dmy) {
+      return (
+        formatDmy(Number(dmy[1]), Number(dmy[2]), Number(dmy[3])) || trimmed
+      );
+    }
+  }
+
+  if (typeof dateVal === "number" && Number.isFinite(dateVal)) {
+    if (dateVal > 20000 && dateVal < 80000) {
+      const parsed = XLSX.SSF.parse_date_code(dateVal);
+      if (parsed) {
+        return (
+          formatDmy(parsed.d, parsed.m, parsed.y) || String(dateVal)
+        );
+      }
+    }
+    if (Number.isInteger(dateVal)) return String(dateVal);
+  }
+
+  return formatDate(dateVal instanceof Date ? dateVal : String(dateVal));
+}
+
+const PREVIEW_ROW_CAP = 800;
+const PREVIEW_COL_CAP = 24;
+
+export type WorkbookPreviewSheet = {
+  name: string;
+  rows: string[][];
+  totalRows: number;
+  totalCols: number;
+  truncated: boolean;
+};
+
+/** Read-only grid of original cell text. Does not interpret ledger columns. */
+export function extractWorkbookPreview(
+  buffer: Buffer | ArrayBuffer
+): WorkbookPreviewSheet[] {
+  const workbook = XLSX.read(buffer, {
+    type: "buffer",
+    cellDates: false,
+    cellNF: true,
+  });
+
+  return (workbook.SheetNames || []).map((name) => {
+    const sheet = workbook.Sheets[name];
+    const json: unknown[][] = XLSX.utils.sheet_to_json(sheet, {
+      header: 1,
+      defval: "",
+      blankrows: false,
+      raw: false,
+    });
+
+    const totalRows = json.length;
+    const totalCols = json.reduce((max, row) => {
+      const width = Array.isArray(row) ? row.length : 0;
+      return Math.max(max, width);
+    }, 0);
+
+    const rows = json.slice(0, PREVIEW_ROW_CAP).map((row) => {
+      const cells = Array.isArray(row) ? row : [];
+      return cells.slice(0, PREVIEW_COL_CAP).map((cell) => {
+        if (cell == null || cell === "") return "";
+        return String(cell);
+      });
+    });
+
+    return {
+      name,
+      rows,
+      totalRows,
+      totalCols,
+      truncated: totalRows > PREVIEW_ROW_CAP || totalCols > PREVIEW_COL_CAP,
+    };
+  });
 }

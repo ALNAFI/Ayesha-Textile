@@ -414,6 +414,44 @@ export async function getDriveFileById(fileId: string): Promise<DriveExcelFile |
   return matched || null;
 }
 
+export async function downloadDriveExcelInFolder(fileId: string): Promise<{
+  buffer: Buffer;
+  name: string;
+  modifiedTime: string | null;
+  size: number;
+} | null> {
+  if (!isDriveConfigured()) return null;
+
+  const { folderId } = getServiceAccountCredentials();
+  if (!folderId) return null;
+
+  const drive = createDriveClientFromEnv();
+  const meta = await drive.files.get({
+    fileId,
+    fields: "id, name, mimeType, modifiedTime, size, parents, trashed",
+    supportsAllDrives: true,
+  });
+
+  const name = meta.data.name || "";
+  const parents = meta.data.parents || [];
+  const excelName = /\.(xlsx|xls)$/i.test(name);
+  if (meta.data.trashed || !excelName || !parents.includes(folderId)) {
+    return null;
+  }
+
+  const fileMedia = await drive.files.get(
+    { fileId, alt: "media", supportsAllDrives: true },
+    { responseType: "arraybuffer" }
+  );
+
+  return {
+    buffer: Buffer.from(fileMedia.data as ArrayBuffer),
+    name,
+    modifiedTime: meta.data.modifiedTime || null,
+    size: Number(meta.data.size) || 0,
+  };
+}
+
 export function getDriveStatus(): DriveConfigStatus {
   const { clientEmail, privateKey, folderId, keyValidation } =
     getServiceAccountCredentials();

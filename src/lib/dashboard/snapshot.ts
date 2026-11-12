@@ -31,6 +31,9 @@ function outstandingFromParsed(
   if (!parsed || parsed.isDueFile !== true) {
     return { value: null, available: false };
   }
+  if (parsed.balanceReliable === false) {
+    return { value: null, available: false };
+  }
   const raw = Number(parsed.outstandingBalance);
   if (!Number.isFinite(raw)) {
     return { value: null, available: false };

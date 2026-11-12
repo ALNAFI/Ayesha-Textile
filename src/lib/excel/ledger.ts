@@ -30,6 +30,8 @@ export interface CustomerLedger {
   totalDebit: number;
   totalCredit: number;
   outstandingBalance: number;
+  /** False when a stated running balance disagrees with Opening + Credits − Debits. */
+  balanceReliable?: boolean;
 }
 
 export interface GeneralExcelSheet {
