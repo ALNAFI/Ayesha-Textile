@@ -20,9 +20,17 @@
 # production
 /build
 
+# netlify
+.netlify
+
 # misc
 .DS_Store
 *.pem
+*.p12
+*.key
+credentials.json
+service-account*.json
+**/secrets/**
 
 # debug
 npm-debug.log*
@@ -30,8 +38,10 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# env files — keep example only
+.env
+.env.*
+!.env.example
 
 # vercel
 .vercel
