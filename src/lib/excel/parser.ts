@@ -12,6 +12,7 @@ import {
   calculateLedgerBalances,
   formatDate,
 } from "./ledger";
+import type { PreviewSheet } from "@/lib/excel/preview-types";
 
 export interface ParseResult {
   isDueFile: boolean;
@@ -505,21 +506,35 @@ function formatLedgerDate(dateVal: unknown): string {
   return formatDate(dateVal instanceof Date ? dateVal : String(dateVal));
 }
 
-const PREVIEW_ROW_CAP = 800;
-const PREVIEW_COL_CAP = 24;
+const PREVIEW_ROW_CAP = 1500;
+const PREVIEW_COL_CAP = 40;
 
-export type WorkbookPreviewSheet = {
-  name: string;
-  rows: string[][];
-  totalRows: number;
-  totalCols: number;
-  truncated: boolean;
-};
+export type { PreviewMerge, PreviewSheet } from "@/lib/excel/preview-types";
+
+function displayCell(cell: XLSX.CellObject | undefined): string {
+  if (!cell) return "";
+  if (typeof cell.w === "string" && cell.w.length > 0) return cell.w;
+  if (cell.v == null || cell.v === "") return "";
+  try {
+    const formatted = XLSX.utils.format_cell(cell);
+    if (formatted) return formatted;
+  } catch {
+    // Keep the raw value when Excel's number format cannot be applied.
+  }
+  if (
+    typeof cell.v === "string" ||
+    typeof cell.v === "number" ||
+    typeof cell.v === "boolean"
+  ) {
+    return String(cell.v);
+  }
+  return "";
+}
 
 /** Read-only grid of original cell text. Does not interpret ledger columns. */
 export function extractWorkbookPreview(
   buffer: Buffer | ArrayBuffer
-): WorkbookPreviewSheet[] {
+): PreviewSheet[] {
   const workbook = XLSX.read(buffer, {
     type: "buffer",
     cellDates: false,
@@ -528,33 +543,63 @@ export function extractWorkbookPreview(
 
   return (workbook.SheetNames || []).map((name) => {
     const sheet = workbook.Sheets[name];
-    const json: unknown[][] = XLSX.utils.sheet_to_json(sheet, {
-      header: 1,
-      defval: "",
-      blankrows: false,
-      raw: false,
-    });
+    if (!sheet || !sheet["!ref"]) {
+      return {
+        name,
+        rows: [],
+        originRow: 0,
+        originCol: 0,
+        rowCount: 0,
+        colCount: 0,
+        truncated: false,
+        merges: [],
+      };
+    }
 
-    const totalRows = json.length;
-    const totalCols = json.reduce((max, row) => {
-      const width = Array.isArray(row) ? row.length : 0;
-      return Math.max(max, width);
-    }, 0);
+    const range = XLSX.utils.decode_range(sheet["!ref"]);
+    const rowCount = range.e.r - range.s.r + 1;
+    const colCount = range.e.c - range.s.c + 1;
+    const rowsToRead = Math.min(rowCount, PREVIEW_ROW_CAP);
+    const colsToRead = Math.min(colCount, PREVIEW_COL_CAP);
+    const rows: string[][] = [];
 
-    const rows = json.slice(0, PREVIEW_ROW_CAP).map((row) => {
-      const cells = Array.isArray(row) ? row : [];
-      return cells.slice(0, PREVIEW_COL_CAP).map((cell) => {
-        if (cell == null || cell === "") return "";
-        return String(cell);
-      });
+    for (let r = 0; r < rowsToRead; r++) {
+      const row: string[] = [];
+      for (let c = 0; c < colsToRead; c++) {
+        const address = XLSX.utils.encode_cell({
+          r: range.s.r + r,
+          c: range.s.c + c,
+        });
+        row.push(displayCell(sheet[address]));
+      }
+      rows.push(row);
+    }
+
+    const merges = (sheet["!merges"] || []).flatMap((merge) => {
+      const r = merge.s.r - range.s.r;
+      const c = merge.s.c - range.s.c;
+      const r2 = merge.e.r - range.s.r;
+      const c2 = merge.e.c - range.s.c;
+      const visibleR1 = Math.max(0, r);
+      const visibleC1 = Math.max(0, c);
+      const visibleR2 = Math.min(rowsToRead - 1, r2);
+      const visibleC2 = Math.min(colsToRead - 1, c2);
+      if (visibleR2 < visibleR1 || visibleC2 < visibleC1) return [];
+      const spanRows = visibleR2 - visibleR1 + 1;
+      const spanCols = visibleC2 - visibleC1 + 1;
+      if (spanRows === 1 && spanCols === 1) return [];
+      return [{ r: visibleR1, c: visibleC1, rows: spanRows, cols: spanCols }];
     });
 
     return {
       name,
       rows,
-      totalRows,
-      totalCols,
-      truncated: totalRows > PREVIEW_ROW_CAP || totalCols > PREVIEW_COL_CAP,
+      originRow: range.s.r,
+      originCol: range.s.c,
+      rowCount,
+      colCount,
+      truncated: rowCount > PREVIEW_ROW_CAP || colCount > PREVIEW_COL_CAP,
+      merges,
     };
   });
 }

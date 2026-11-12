@@ -253,6 +253,18 @@ body {
   animation-delay: 140ms;
 }
 
+.preview-stagger .preview-section {
+  animation: page-enter var(--motion-page) var(--ease-out) both;
+}
+
+.preview-stagger .preview-section:nth-child(1) {
+  animation-delay: 40ms;
+}
+
+.preview-stagger .preview-section:nth-child(2) {
+  animation-delay: 100ms;
+}
+
 @media print {
   @page {
     size: A4;
@@ -273,8 +285,13 @@ body {
     break-inside: avoid;
   }
 
-  .customer-statement thead {
+  .customer-statement thead,
+  .sheet-print thead {
     display: table-header-group;
+  }
+
+  .sheet-print tr {
+    break-inside: avoid;
   }
 }
 
@@ -320,7 +337,8 @@ body {
   .dash-stagger .dash-section,
   .files-stagger .files-section,
   .customers-stagger .customers-section,
-  .detail-stagger .detail-section {
+  .detail-stagger .detail-section,
+  .preview-stagger .preview-section {
     animation: none;
     filter: none;
   }

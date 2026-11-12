@@ -124,13 +124,7 @@ export const getCustomerDetail = cache(async function getCustomerDetail(
       lastModified,
       fileSize
     );
-    sheets = extractWorkbookPreview(downloaded.buffer).map((sheet) => ({
-      name: sheet.name,
-      rows: sheet.rows,
-      totalRows: sheet.totalRows,
-      totalCols: sheet.totalCols,
-      truncated: sheet.truncated,
-    }));
+    sheets = extractWorkbookPreview(downloaded.buffer);
   } catch (error) {
     const message =
       error instanceof Error

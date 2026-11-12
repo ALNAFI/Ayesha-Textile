@@ -1,4 +1,5 @@
 import type { CustomerFinancialStatus } from "@/lib/customers/types";
+import type { PreviewSheet } from "@/lib/excel/preview-types";
 
 export type CustomerTransaction = {
   id: string;
@@ -10,13 +11,7 @@ export type CustomerTransaction = {
   balance: number | null;
 };
 
-export type CustomerPreviewSheet = {
-  name: string;
-  rows: string[][];
-  totalRows: number;
-  totalCols: number;
-  truncated: boolean;
-};
+export type CustomerPreviewSheet = PreviewSheet;
 
 export type CustomerDetailSnapshot = {
   available: boolean;
