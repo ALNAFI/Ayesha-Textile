@@ -20,8 +20,8 @@
 # production
 /build
 
-# netlify
-.netlify
+# vercel
+.vercel
 
 # misc
 .DS_Store

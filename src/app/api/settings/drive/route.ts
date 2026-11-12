@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requireApiSession } from "@/lib/auth/api";
 import { getDriveHealth } from "@/lib/settings/drive-health";
 
+export const runtime = "nodejs";
+export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 export async function GET() {

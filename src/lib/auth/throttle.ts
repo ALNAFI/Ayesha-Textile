@@ -3,7 +3,7 @@ import "server-only";
 /**
  * Process-local login throttle.
  * Limitation: resets per server instance / cold start; not shared across
- * Netlify/serverless replicas. Suitable as a practical baseline only.
+ * Vercel serverless instances. Suitable as a practical baseline only.
  */
 
 type AttemptState = {

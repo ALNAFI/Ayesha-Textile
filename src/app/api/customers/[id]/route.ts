@@ -5,6 +5,8 @@ import {
   invalidateCustomerDetail,
 } from "@/lib/customers/detail";
 
+export const runtime = "nodejs";
+export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 type RouteContext = {

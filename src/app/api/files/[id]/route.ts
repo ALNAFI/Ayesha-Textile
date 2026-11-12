@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requireApiSession } from "@/lib/auth/api";
 import { getFilePreview, invalidateFilePreview } from "@/lib/files/preview";
 
+export const runtime = "nodejs";
+export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 type RouteContext = {
