@@ -1,98 +1,48 @@
-/**
- * Preserved session helpers from legacy Ayesha Textile auth.
- * Express middleware was removed for Next.js; jose JWT wiring comes later.
- * Server-only — do not import from client components.
- */
-
 import "server-only";
-import crypto from "crypto";
 
-export const COOKIE_NAME = "ayesha_auth_token";
+import { cookies } from "next/headers";
+import {
+  AUTH_COOKIE_NAME,
+  AUTH_COOKIE_OPTIONS,
+  SESSION_MAX_AGE_SECONDS,
+  type SessionClaims,
+} from "@/lib/auth/constants";
+import { signSessionToken, verifySessionToken } from "@/lib/auth/jwt";
+import { sanitizeRedirectPath } from "@/lib/auth/redirect";
 
-export function getAuthConfig() {
-  const username = process.env.APP_USERNAME;
-  const password = process.env.APP_PASSWORD;
-  const sessionSecret = process.env.SESSION_SECRET;
+export { AUTH_COOKIE_NAME as COOKIE_NAME };
+export { sanitizeRedirectPath };
+export type { SessionClaims as AuthSessionPayload };
 
-  if (!username || !password || !sessionSecret) {
-    throw new Error(
-      "APP_USERNAME, APP_PASSWORD, and SESSION_SECRET must be set in server environment variables."
-    );
+export async function createSession(claims: SessionClaims): Promise<void> {
+  const token = await signSessionToken(claims, SESSION_MAX_AGE_SECONDS);
+  const jar = await cookies();
+  jar.set(AUTH_COOKIE_NAME, token, {
+    ...AUTH_COOKIE_OPTIONS,
+    secure: process.env.NODE_ENV === "production",
+    maxAge: SESSION_MAX_AGE_SECONDS,
+  });
+}
+
+export async function destroySession(): Promise<void> {
+  const jar = await cookies();
+  jar.set(AUTH_COOKIE_NAME, "", {
+    ...AUTH_COOKIE_OPTIONS,
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 0,
+  });
+}
+
+export async function getSession(): Promise<SessionClaims | null> {
+  const jar = await cookies();
+  const token = jar.get(AUTH_COOKIE_NAME)?.value;
+  return verifySessionToken(token);
+}
+
+export async function requireSession(): Promise<SessionClaims> {
+  const session = await getSession();
+  if (!session) {
+    throw new Error("UNAUTHORIZED");
   }
-
-  return { username, password, sessionSecret };
-}
-
-export interface AuthSessionPayload {
-  username: string;
-  displayName: string;
-  createdAt: number;
-  expiresAt: number;
-}
-
-export function createSessionToken(
-  username: string,
-  displayName: string,
-  rememberMe: boolean
-): string {
-  const { sessionSecret } = getAuthConfig();
-  const durationMs = rememberMe
-    ? 30 * 24 * 60 * 60 * 1000
-    : 24 * 60 * 60 * 1000;
-  const now = Date.now();
-  const payload: AuthSessionPayload = {
-    username,
-    displayName,
-    createdAt: now,
-    expiresAt: now + durationMs,
-  };
-
-  const dataStr = Buffer.from(JSON.stringify(payload)).toString("base64url");
-  const signature = crypto
-    .createHmac("sha256", sessionSecret)
-    .update(dataStr)
-    .digest("base64url");
-
-  return `${dataStr}.${signature}`;
-}
-
-export function verifySessionToken(
-  token: string | undefined
-): AuthSessionPayload | null {
-  if (!token || typeof token !== "string") return null;
-  const parts = token.split(".");
-  if (parts.length !== 2) return null;
-
-  const [dataStr, signature] = parts;
-  const { sessionSecret } = getAuthConfig();
-
-  const expectedSignature = crypto
-    .createHmac("sha256", sessionSecret)
-    .update(dataStr)
-    .digest("base64url");
-
-  const bufA = Buffer.from(signature);
-  const bufB = Buffer.from(expectedSignature);
-  if (bufA.length !== bufB.length || !crypto.timingSafeEqual(bufA, bufB)) {
-    return null;
-  }
-
-  try {
-    const jsonStr = Buffer.from(dataStr, "base64url").toString("utf8");
-    const payload = JSON.parse(jsonStr) as AuthSessionPayload;
-    if (Date.now() > payload.expiresAt) {
-      return null;
-    }
-    return payload;
-  } catch {
-    return null;
-  }
-}
-
-export function constantTimeEqual(a: string, b: string): boolean {
-  if (typeof a !== "string" || typeof b !== "string") return false;
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) return false;
-  return crypto.timingSafeEqual(bufA, bufB);
+  return session;
 }
