@@ -7,6 +7,7 @@ import "server-only";
 import { google } from "googleapis";
 import type { DriveExcelFile } from "@/lib/excel/ledger";
 import { parseExcelBuffer } from "@/lib/excel/parser";
+import { listAllFolderFiles, mapWithConcurrency } from "@/lib/drive/folder-list";
 
 export interface DriveConfigStatus {
   isConfigured: boolean;
@@ -282,15 +283,7 @@ export async function getDriveFiles(forceRefresh = false): Promise<{
       throw folderAccessErr;
     }
 
-    const listRes = await drive.files.list({
-      q: `'${folderId}' in parents and trashed = false`,
-      fields: "files(id, name, mimeType, modifiedTime, size)",
-      pageSize: 100,
-      supportsAllDrives: true,
-      includeItemsFromAllDrives: true,
-    });
-
-    const allItems = listRes.data.files || [];
+    const allItems = await listAllFolderFiles(drive, folderId);
     console.log(
       `[DriveService] Drive files.list returned ${allItems.length} total items in folder.`
     );
@@ -328,53 +321,42 @@ export async function getDriveFiles(forceRefresh = false): Promise<{
 
     const parsedFiles: DriveExcelFile[] = [];
 
-    await Promise.all(
-      excelFiles.map(async (file) => {
-        if (!file.id || !file.name) return;
+    await mapWithConcurrency(excelFiles, 4, async (file) => {
+      if (!file.id || !file.name) return;
 
-        try {
-          console.log(
-            `[DriveService] Downloading and parsing: ${file.name} (id: ${file.id})...`
-          );
-          const fileMedia = await drive.files.get(
-            { fileId: file.id, alt: "media", supportsAllDrives: true },
-            { responseType: "arraybuffer" }
-          );
+      try {
+        const fileMedia = await drive.files.get(
+          { fileId: file.id, alt: "media", supportsAllDrives: true },
+          { responseType: "arraybuffer" }
+        );
 
-          const buffer = Buffer.from(fileMedia.data as ArrayBuffer);
-          const sizeStr = formatFileSize(Number(file.size) || buffer.byteLength);
-          const lastModified = formatIsoToDisplay(file.modifiedTime);
+        const buffer = Buffer.from(fileMedia.data as ArrayBuffer);
+        const sizeStr = formatFileSize(Number(file.size) || buffer.byteLength);
+        const lastModified = formatIsoToDisplay(file.modifiedTime);
 
-          const parseResult = parseExcelBuffer(
-            buffer,
-            file.name,
-            file.id,
-            lastModified,
-            sizeStr
-          );
+        const parseResult = parseExcelBuffer(
+          buffer,
+          file.name,
+          file.id,
+          lastModified,
+          sizeStr
+        );
 
-          if (parseResult.isDueFile && parseResult.customerLedger) {
-            console.log(
-              `[DriveService] ✓ Due File parsed: ${file.name} -> Customer: "${parseResult.customerLedger.customerName}", Outstanding: ৳${parseResult.customerLedger.outstandingBalance}, Entries: ${parseResult.customerLedger.entries.length}`
-            );
-            parsedFiles.push(parseResult.customerLedger);
-          } else if (parseResult.generalExcelFile) {
-            console.log(
-              `[DriveService] ✓ General Sheet parsed: ${file.name} -> Sheets: ${parseResult.generalExcelFile.sheets.length}`
-            );
-            parsedFiles.push(parseResult.generalExcelFile);
-          }
-        } catch (fileErr) {
-          console.warn(
-            `[DriveService] Failed to parse file "${file.name}" (${file.id}):`,
-            fileErr instanceof Error ? fileErr.message : String(fileErr)
-          );
+        if (parseResult.isDueFile && parseResult.customerLedger) {
+          parsedFiles.push(parseResult.customerLedger);
+        } else if (parseResult.generalExcelFile) {
+          parsedFiles.push(parseResult.generalExcelFile);
         }
-      })
-    );
+      } catch (fileErr) {
+        console.warn(
+          `[DriveService] Failed to parse workbook ${file.id}:`,
+          fileErr instanceof Error ? fileErr.message : String(fileErr)
+        );
+      }
+    });
 
     console.log(
-      `[DriveService] Successfully parsed ${parsedFiles.length} workbooks (${parsedFiles.filter((f) => f.isDueFile).length} Due Ledgers, ${parsedFiles.filter((f) => !f.isDueFile).length} General Sheets).`
+      `[DriveService] Parsed ${parsedFiles.length} workbooks (${parsedFiles.filter((f) => f.isDueFile).length} ledgers, ${parsedFiles.filter((f) => !f.isDueFile).length} other).`
     );
 
     memoryCache = {

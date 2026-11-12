@@ -3,6 +3,7 @@
  */
 
 import "server-only";
+import { listAllFolderFiles } from "@/lib/drive/folder-list";
 import {
   createDriveClientFromEnv,
   formatFileSize,
@@ -88,15 +89,7 @@ export async function listDriveExcelMetadata(forceRefresh = false): Promise<{
 
   try {
     const drive = createDriveClientFromEnv();
-    const listRes = await drive.files.list({
-      q: `'${folderId}' in parents and trashed = false`,
-      fields: "files(id, name, mimeType, modifiedTime, size)",
-      pageSize: 100,
-      supportsAllDrives: true,
-      includeItemsFromAllDrives: true,
-    });
-
-    const allItems = listRes.data.files || [];
+    const allItems = await listAllFolderFiles(drive, folderId);
     const items: DriveExcelMeta[] = allItems
       .filter((file) => {
         const name = file.name || "";
