@@ -265,6 +265,30 @@ body {
   animation-delay: 100ms;
 }
 
+.settings-stagger .settings-section {
+  animation: page-enter var(--motion-page) var(--ease-out) both;
+}
+
+.settings-stagger .settings-section:nth-child(1) {
+  animation-delay: 30ms;
+}
+
+.settings-stagger .settings-section:nth-child(2) {
+  animation-delay: 70ms;
+}
+
+.settings-stagger .settings-section:nth-child(3) {
+  animation-delay: 110ms;
+}
+
+.settings-stagger .settings-section:nth-child(4) {
+  animation-delay: 150ms;
+}
+
+.settings-stagger .settings-section:nth-child(5) {
+  animation-delay: 190ms;
+}
+
 @media print {
   @page {
     size: A4;
@@ -338,7 +362,8 @@ body {
   .files-stagger .files-section,
   .customers-stagger .customers-section,
   .detail-stagger .detail-section,
-  .preview-stagger .preview-section {
+  .preview-stagger .preview-section,
+  .settings-stagger .settings-section {
     animation: none;
     filter: none;
   }
