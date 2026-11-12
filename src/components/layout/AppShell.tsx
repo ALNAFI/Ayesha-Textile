@@ -6,6 +6,7 @@ import { Header } from "@/components/layout/Header";
 import { MobileNav } from "@/components/layout/MobileNav";
 import { PageTransition } from "@/components/layout/PageTransition";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { SearchProvider } from "@/components/search/SearchProvider";
 import { cn } from "@/lib/utils";
 
 const SIDEBAR_STORAGE_KEY = "ayesha-sidebar-collapsed";
@@ -34,32 +35,34 @@ export function AppShell({ children }: AppShellProps) {
   }
 
   return (
-    <div className="min-h-dvh bg-background text-foreground">
-      <Sidebar collapsed={collapsed} onToggle={toggleCollapsed} />
+    <SearchProvider>
+      <div className="min-h-dvh bg-background text-foreground">
+        <Sidebar collapsed={collapsed} onToggle={toggleCollapsed} />
 
-      <div
-        className={cn(
-          "app-content flex min-h-dvh flex-col",
-          collapsed
-            ? "md:pl-[var(--sidebar-width-collapsed)]"
-            : "md:pl-[var(--sidebar-width)]"
-        )}
-      >
-        <Header pathname={pathname} />
-
-        <main
+        <div
           className={cn(
-            "flex-1 px-4 py-6 sm:px-6",
-            "pb-[calc(var(--mobile-nav-height)+env(safe-area-inset-bottom)+1.25rem)] md:pb-8"
+            "app-content flex min-h-dvh flex-col",
+            collapsed
+              ? "md:pl-[var(--sidebar-width-collapsed)]"
+              : "md:pl-[var(--sidebar-width)]"
           )}
         >
-          <div className="mx-auto w-full max-w-6xl">
-            <PageTransition>{children}</PageTransition>
-          </div>
-        </main>
-      </div>
+          <Header pathname={pathname} />
 
-      <MobileNav />
-    </div>
+          <main
+            className={cn(
+              "flex-1 px-4 py-6 sm:px-6",
+              "pb-[calc(var(--mobile-nav-height)+env(safe-area-inset-bottom)+1.25rem)] md:pb-8"
+            )}
+          >
+            <div className="mx-auto w-full max-w-6xl">
+              <PageTransition>{children}</PageTransition>
+            </div>
+          </main>
+        </div>
+
+        <MobileNav />
+      </div>
+    </SearchProvider>
   );
 }

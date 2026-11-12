@@ -43,6 +43,7 @@ yarn-error.log*
 .env.*
 !.env.example
 .tmp-login.json
+.tmp-session.txt
 
 # vercel
 .vercel

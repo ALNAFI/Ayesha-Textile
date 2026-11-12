@@ -1,15 +1,14 @@
 import type { Metadata } from "next";
-import { PagePlaceholder } from "@/components/shared/PagePlaceholder";
+import { DashboardView } from "@/components/dashboard/DashboardView";
+import { getDashboardSnapshot } from "@/lib/dashboard/snapshot";
 
 export const metadata: Metadata = {
   title: "Dashboard",
 };
 
-export default function DashboardPage() {
-  return (
-    <PagePlaceholder
-      title="Dashboard"
-      description="Overview metrics and sync status will appear here in a later module. Navigation and theming are ready now."
-    />
-  );
+export const dynamic = "force-dynamic";
+
+export default async function DashboardPage() {
+  const initialData = await getDashboardSnapshot(false);
+  return <DashboardView initialData={initialData} />;
 }

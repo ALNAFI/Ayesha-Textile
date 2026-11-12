@@ -153,7 +153,7 @@ export function isDriveConfigured(): boolean {
   );
 }
 
-function createDriveClient() {
+export function createDriveClientFromEnv() {
   const { clientEmail, privateKey, keyValidation } = getServiceAccountCredentials();
   if (!clientEmail) {
     throw new Error(
@@ -171,6 +171,10 @@ function createDriveClient() {
   });
 
   return google.drive({ version: "v3", auth });
+}
+
+function createDriveClient() {
+  return createDriveClientFromEnv();
 }
 
 /**
@@ -468,14 +472,22 @@ export function invalidateDriveCache() {
   memoryCache = null;
 }
 
-function formatFileSize(bytes: number): string {
+export function getParsedDriveFileMap(): Map<string, DriveExcelFile> {
+  const map = new Map<string, DriveExcelFile>();
+  for (const file of memoryCache?.files || []) {
+    map.set(file.id, file);
+  }
+  return map;
+}
+
+export function formatFileSize(bytes: number): string {
   if (!bytes || isNaN(bytes)) return "0 KB";
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function formatIsoToDisplay(isoStr?: string | null): string {
+export function formatIsoToDisplay(isoStr?: string | null): string {
   if (!isoStr) return "—";
   try {
     const d = new Date(isoStr);
