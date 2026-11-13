@@ -12,8 +12,8 @@ type RecentSearchesProps = {
 
 export function RecentSearches({ items, ready }: RecentSearchesProps) {
   return (
-    <section className="rounded-[var(--radius-lg)] border border-border bg-surface p-5 shadow-[var(--shadow-soft)] sm:p-6">
-      <div>
+    <section className="box-border w-full min-w-0 max-w-full overflow-hidden rounded-[var(--radius-lg)] border border-border bg-surface p-4 shadow-[var(--shadow-soft)] sm:p-6">
+      <div className="min-w-0">
         <h2 className="text-base font-semibold text-foreground">
           Recent Searches
         </h2>
@@ -38,15 +38,15 @@ export function RecentSearches({ items, ready }: RecentSearchesProps) {
           </p>
         </div>
       ) : (
-        <ul className="mt-5 space-y-1">
+        <ul className="mt-5 w-full min-w-0 space-y-1">
           {items.slice(0, 5).map((item) => {
             const Icon = item.kind === "customer" ? Users : FileSpreadsheet;
             return (
-              <li key={`${item.id}-${item.openedAt}`}>
+              <li key={`${item.id}-${item.openedAt}`} className="min-w-0">
                 <Link
                   href={item.href}
                   className={cn(
-                    "flex items-center gap-3 rounded-[var(--radius-md)] px-2.5 py-2.5",
+                    "flex w-full min-w-0 items-center gap-3 rounded-[var(--radius-md)] px-2.5 py-2.5",
                     "transition-[background-color,transform] duration-[var(--motion-fast)] ease-[var(--ease-out)]",
                     "hover:bg-surface-muted active:scale-[0.995]"
                   )}

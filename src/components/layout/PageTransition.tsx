@@ -11,7 +11,7 @@ export function PageTransition({ children }: PageTransitionProps) {
   const pathname = usePathname();
 
   return (
-    <div key={pathname} className="page-enter">
+    <div key={pathname} className="page-enter w-full min-w-0 max-w-full">
       {children}
     </div>
   );

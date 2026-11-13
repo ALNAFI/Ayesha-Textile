@@ -41,7 +41,7 @@ export function AppShell({ children }: AppShellProps) {
 
         <div
           className={cn(
-            "app-content flex min-h-dvh flex-col print:pl-0",
+            "app-content box-border flex min-h-dvh w-full min-w-0 max-w-full flex-col print:pl-0",
             collapsed
               ? "md:pl-[var(--sidebar-width-collapsed)]"
               : "md:pl-[var(--sidebar-width)]"
@@ -51,11 +51,11 @@ export function AppShell({ children }: AppShellProps) {
 
           <main
             className={cn(
-              "flex-1 px-4 py-6 sm:px-6",
+              "box-border w-full min-w-0 max-w-full flex-1 px-3 py-6 sm:px-6",
               "pb-[calc(var(--mobile-nav-height)+env(safe-area-inset-bottom)+1.25rem)] md:pb-8 print:p-0"
             )}
           >
-            <div className="mx-auto w-full max-w-6xl print:max-w-none">
+            <div className="mx-auto box-border w-full min-w-0 max-w-6xl print:max-w-none">
               <PageTransition>{children}</PageTransition>
             </div>
           </main>

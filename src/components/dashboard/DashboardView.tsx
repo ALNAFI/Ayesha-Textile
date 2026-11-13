@@ -57,7 +57,7 @@ export function DashboardView({ initialData }: DashboardViewProps) {
   }
 
   return (
-    <div className="dash-stagger space-y-8">
+    <div className="dash-stagger w-full min-w-0 max-w-full space-y-8">
       <header className="dash-section flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
@@ -126,7 +126,7 @@ export function DashboardView({ initialData }: DashboardViewProps) {
         />
       </div>
 
-      <div className="dash-section grid gap-4 lg:grid-cols-3">
+      <div className="dash-section grid w-full min-w-0 max-w-full grid-cols-1 gap-4 lg:grid-cols-3">
         <RecentFiles files={data.recentFiles} available={data.available} />
         <RecentSearches items={recentOpens} ready={recentReady} />
         <FavoriteCustomers favorites={favorites} ready={favoritesReady} />
