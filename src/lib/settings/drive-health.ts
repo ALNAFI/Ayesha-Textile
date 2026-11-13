@@ -3,7 +3,7 @@ import "server-only";
 import { invalidateCustomerDetail } from "@/lib/customers/detail";
 import { invalidateFilePreview } from "@/lib/files/preview";
 import { invalidateDriveMetaCache, listDriveExcelMetadata } from "@/lib/drive/list";
-import { invalidateDriveCache, isDriveConfigured } from "@/lib/drive/service";
+import { isDriveConfigured, resetDriveParsedCache } from "@/lib/drive/service";
 import type { DriveHealth } from "@/lib/settings/types";
 
 export type { DriveHealth } from "@/lib/settings/types";
@@ -56,7 +56,7 @@ export async function refreshWorkspaceData(): Promise<
   | { ok: true; health: DriveHealth }
   | { ok: false; health: DriveHealth }
 > {
-  invalidateDriveCache();
+  resetDriveParsedCache();
   invalidateDriveMetaCache();
   invalidateCustomerDetail();
   invalidateFilePreview();

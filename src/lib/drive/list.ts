@@ -3,7 +3,7 @@
  */
 
 import "server-only";
-import { listAllFolderFiles } from "@/lib/drive/folder-list";
+import { listFolderShared } from "@/lib/drive/folder-list";
 import {
   createDriveClientFromEnv,
   formatFileSize,
@@ -32,7 +32,6 @@ type MetaCache = {
 };
 
 let metaCache: MetaCache | null = null;
-const CACHE_TTL_MS = 5 * 60 * 1000;
 
 export function invalidateDriveMetaCache() {
   metaCache = null;
@@ -45,16 +44,6 @@ export async function listDriveExcelMetadata(forceRefresh = false): Promise<{
   error?: string | null;
 }> {
   const now = Date.now();
-
-  if (!forceRefresh && metaCache && now - metaCache.cachedAt < CACHE_TTL_MS) {
-    return {
-      items: metaCache.items,
-      syncedAt: metaCache.syncedAtStr,
-      syncedAtIso: metaCache.syncedAtIso,
-      error: metaCache.error,
-    };
-  }
-
   const syncedAtIso = new Date().toISOString();
   const syncedAt = new Date(syncedAtIso).toLocaleTimeString("en-GB", {
     hour: "2-digit",
@@ -89,7 +78,7 @@ export async function listDriveExcelMetadata(forceRefresh = false): Promise<{
 
   try {
     const drive = createDriveClientFromEnv();
-    const allItems = await listAllFolderFiles(drive, folderId);
+    const allItems = await listFolderShared(drive, folderId, forceRefresh);
     const items: DriveExcelMeta[] = allItems
       .filter(isExcelDriveItem)
       .filter((file) => Boolean(file.id && file.name))

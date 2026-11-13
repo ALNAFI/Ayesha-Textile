@@ -1,8 +1,8 @@
-import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { requireApiSession } from "@/lib/auth/api";
 import { isExcelDriveItem } from "@/lib/drive/excel-files";
-import { listAllFolderFiles } from "@/lib/drive/folder-list";
+import { listFolderShared } from "@/lib/drive/folder-list";
+import { excelFolderSignature } from "@/lib/drive/signature";
 import {
   createDriveClientFromEnv,
   getServiceAccountCredentials,
@@ -36,14 +36,9 @@ export async function GET() {
 
   try {
     const drive = createDriveClientFromEnv();
-    const items = await listAllFolderFiles(drive, folderId);
+    const items = await listFolderShared(drive, folderId, true);
     const excel = items.filter(isExcelDriveItem);
-    const lines = excel
-      .filter((file) => file.id)
-      .map((file) => `${file.id}:${file.modifiedTime ?? ""}`)
-      .sort()
-      .join("\n");
-    const signature = createHash("sha1").update(lines).digest("hex").slice(0, 16);
+    const signature = excelFolderSignature(excel);
 
     return NextResponse.json(
       { signature, count: excel.length },

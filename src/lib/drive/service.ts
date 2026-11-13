@@ -8,7 +8,14 @@ import { google } from "googleapis";
 import type { DriveExcelFile } from "@/lib/excel/ledger";
 import { parseExcelBuffer } from "@/lib/excel/parser";
 import { isExcelDriveItem } from "@/lib/drive/excel-files";
-import { listAllFolderFiles, mapWithConcurrency } from "@/lib/drive/folder-list";
+import {
+  DRIVE_REQUEST_TIMEOUT_MS,
+  clearFolderListCache,
+  listFolderShared,
+  mapWithConcurrency,
+  withDriveRetry,
+} from "@/lib/drive/folder-list";
+import { excelFolderSignature } from "@/lib/drive/signature";
 
 export interface DriveConfigStatus {
   isConfigured: boolean;
@@ -29,15 +36,42 @@ export interface DriveConfigStatus {
   error?: string | null;
 }
 
-interface CacheState {
+export type DriveWorkspaceMeta = {
+  id: string;
+  name: string;
+  modifiedTime: string | null;
+  modifiedAt: number;
+  lastModified: string;
+  size: string;
+};
+
+export type DriveWorkspace = {
+  ok: boolean;
   files: DriveExcelFile[];
-  cachedAt: number;
-  syncedAtStr: string;
+  items: DriveWorkspaceMeta[];
+  signature: string;
+  /** Workbooks that failed after the media retry and were not replaced. */
+  failedFiles: string[];
+  syncedAt: string;
+  syncedAtIso: string;
   error?: string | null;
+};
+
+interface CacheState extends DriveWorkspace {
+  cachedAt: number;
 }
 
+type ParsedEntry = {
+  modifiedTime: string;
+  parsed: DriveExcelFile;
+};
+
 let memoryCache: CacheState | null = null;
+/** Parsed workbook by Drive file id. Survives forceRefresh. */
+const parsedById = new Map<string, ParsedEntry>();
+let workspaceInflight: Promise<DriveWorkspace> | null = null;
 const CACHE_TTL_MS = 5 * 60 * 1000;
+const DOWNLOAD_CONCURRENCY = 8;
 
 /**
  * Extracts raw folder ID from folder URL or plain ID
@@ -179,31 +213,72 @@ function createDriveClient() {
   return createDriveClientFromEnv();
 }
 
+function excelMetaFromListing(file: {
+  id?: string | null;
+  name?: string | null;
+  modifiedTime?: string | null;
+  size?: string | null;
+}): DriveWorkspaceMeta | null {
+  if (!file.id || !file.name) return null;
+  const modifiedAt = file.modifiedTime ? new Date(file.modifiedTime).getTime() : 0;
+  return {
+    id: file.id,
+    name: file.name,
+    modifiedTime: file.modifiedTime || null,
+    modifiedAt: Number.isFinite(modifiedAt) ? modifiedAt : 0,
+    lastModified: formatIsoToDisplay(file.modifiedTime),
+    size: formatFileSize(Number(file.size) || 0),
+  };
+}
+
+function rememberWorkspace(workspace: DriveWorkspace, cachedAt: number): DriveWorkspace {
+  memoryCache = { ...workspace, cachedAt };
+  return workspace;
+}
+
 /**
- * Lists and parses all .xls and .xlsx files from the configured Google Drive folder.
- * NEVER silently falls back to demo data.
+ * Re-list the folder and reuse a parsed workbook only when modifiedTime is unchanged.
+ * Does not clear the per-file cache. Overlapping calls share one run.
  */
-export async function getDriveFiles(forceRefresh = false): Promise<{
-  files: DriveExcelFile[];
-  syncedAt: string;
-  error?: string | null;
-}> {
+export async function loadDriveWorkspace(forceRefresh = false): Promise<DriveWorkspace> {
   const now = Date.now();
-
   if (!forceRefresh && memoryCache && now - memoryCache.cachedAt < CACHE_TTL_MS) {
-    return {
-      files: memoryCache.files,
-      syncedAt: memoryCache.syncedAtStr,
-      error: memoryCache.error,
-    };
+    return memoryCache;
   }
+  if (workspaceInflight) return workspaceInflight;
 
+  const run = readDriveWorkspace(forceRefresh);
+  workspaceInflight = run;
+  run.finally(() => {
+    if (workspaceInflight === run) workspaceInflight = null;
+  });
+  return run;
+}
+
+async function readDriveWorkspace(forceRefresh: boolean): Promise<DriveWorkspace> {
+  const now = Date.now();
   const { clientEmail, privateKey, folderId, keyValidation } =
     getServiceAccountCredentials();
-  const syncedAt = new Date().toLocaleTimeString("en-GB", {
+  const syncedAtIso = new Date().toISOString();
+  const syncedAt = new Date(syncedAtIso).toLocaleTimeString("en-GB", {
     hour: "2-digit",
     minute: "2-digit",
   });
+
+  const fail = (errorMsg: string): DriveWorkspace =>
+    rememberWorkspace(
+      {
+        ok: false,
+        files: [],
+        items: [],
+        signature: "",
+        failedFiles: [],
+        syncedAt,
+        syncedAtIso,
+        error: errorMsg,
+      },
+      now
+    );
 
   console.log("[DriveService] Sync initiated.");
   console.log(
@@ -219,22 +294,19 @@ export async function getDriveFiles(forceRefresh = false): Promise<{
   if (!folderId) {
     const errorMsg = "GOOGLE_DRIVE_FOLDER_ID environment variable is missing.";
     console.error(`[DriveService] Configuration error: ${errorMsg}`);
-    memoryCache = { files: [], cachedAt: now, syncedAtStr: syncedAt, error: errorMsg };
-    return { files: [], syncedAt, error: errorMsg };
+    return fail(errorMsg);
   }
 
   if (!clientEmail) {
     const errorMsg = "GOOGLE_CLIENT_EMAIL environment variable is missing.";
     console.error(`[DriveService] Configuration error: ${errorMsg}`);
-    memoryCache = { files: [], cachedAt: now, syncedAtStr: syncedAt, error: errorMsg };
-    return { files: [], syncedAt, error: errorMsg };
+    return fail(errorMsg);
   }
 
   if (keyValidation.status !== "valid_pem" || !privateKey) {
     const errorMsg = keyValidation.message;
     console.error(`[DriveService] Authentication error: ${errorMsg}`);
-    memoryCache = { files: [], cachedAt: now, syncedAtStr: syncedAt, error: errorMsg };
-    return { files: [], syncedAt, error: errorMsg };
+    return fail(errorMsg);
   }
 
   try {
@@ -262,69 +334,87 @@ export async function getDriveFiles(forceRefresh = false): Promise<{
       if (status === 404 || msg.includes("File not found")) {
         const errorMsg = `Google Drive folder not found (404). Either the folder ID is incorrect or the folder has not been shared with the service account (${clientEmail}). Please share the folder with this email as Viewer.`;
         console.error(`[DriveService] ${errorMsg}`);
-        memoryCache = {
-          files: [],
-          cachedAt: now,
-          syncedAtStr: syncedAt,
-          error: errorMsg,
-        };
-        return { files: [], syncedAt, error: errorMsg };
+        return fail(errorMsg);
       }
       if (status === 403 || msg.includes("permission")) {
         const errorMsg = `Permission denied (403) accessing Google Drive folder. Please share folder "${maskString(folderId, 4, 4)}" with service account "${clientEmail}" as Viewer.`;
         console.error(`[DriveService] ${errorMsg}`);
-        memoryCache = {
-          files: [],
-          cachedAt: now,
-          syncedAtStr: syncedAt,
-          error: errorMsg,
-        };
-        return { files: [], syncedAt, error: errorMsg };
+        return fail(errorMsg);
       }
       throw folderAccessErr;
     }
 
-    const allItems = await listAllFolderFiles(drive, folderId);
+    const allItems = await listFolderShared(drive, folderId, forceRefresh);
     console.log(
       `[DriveService] Drive files.list returned ${allItems.length} total items in folder.`
     );
 
     const excelFiles = allItems.filter(isExcelDriveItem);
+    const signature = excelFolderSignature(excelFiles);
 
     console.log(
       `[DriveService] Filtered ${excelFiles.length} Excel spreadsheet files (.xlsx/.xls).`
     );
 
+    const items = excelFiles
+      .map(excelMetaFromListing)
+      .filter((item): item is DriveWorkspaceMeta => item !== null);
+
     if (excelFiles.length === 0) {
       const infoMsg = `No .xlsx or .xls Excel files were found inside Google Drive folder "${maskString(folderId, 4, 4)}".`;
       console.log(`[DriveService] ${infoMsg}`);
-      memoryCache = {
-        files: [],
-        cachedAt: now,
-        syncedAtStr: syncedAt,
-        error:
-          allItems.length > 0
-            ? `${infoMsg} (${allItems.length} non-Excel items found in folder).`
-            : infoMsg,
-      };
-      return { files: [], syncedAt, error: memoryCache.error };
+      for (const id of parsedById.keys()) parsedById.delete(id);
+      return rememberWorkspace(
+        {
+          ok: true,
+          files: [],
+          items: [],
+          signature,
+          failedFiles: [],
+          syncedAt,
+          syncedAtIso,
+          error:
+            allItems.length > 0
+              ? `${infoMsg} (${allItems.length} non-Excel items found in folder).`
+              : infoMsg,
+        },
+        now
+      );
+    }
+
+    const liveIds = new Set(
+      excelFiles.map((file) => file.id).filter((id): id is string => Boolean(id))
+    );
+    for (const id of parsedById.keys()) {
+      if (!liveIds.has(id)) parsedById.delete(id);
     }
 
     const parsedFiles: DriveExcelFile[] = [];
+    const failedFiles: string[] = [];
+    let downloaded = 0;
+    let reused = 0;
+    let downloadMs = 0;
+    let parseMs = 0;
+    const fetchStarted = performance.now();
 
-    await mapWithConcurrency(excelFiles, 4, async (file) => {
+    await mapWithConcurrency(excelFiles, DOWNLOAD_CONCURRENCY, async (file) => {
       if (!file.id || !file.name) return;
+      const modifiedTime = file.modifiedTime ?? "";
+      const cached = parsedById.get(file.id);
+      if (cached && cached.modifiedTime === modifiedTime) {
+        reused += 1;
+        parsedFiles.push(cached.parsed);
+        return;
+      }
 
       try {
-        const fileMedia = await drive.files.get(
-          { fileId: file.id, alt: "media", supportsAllDrives: true },
-          { responseType: "arraybuffer" }
-        );
+        const downloadStarted = performance.now();
+        const buffer = await downloadDriveMedia(drive, file.id);
+        downloadMs += performance.now() - downloadStarted;
 
-        const buffer = Buffer.from(fileMedia.data as ArrayBuffer);
         const sizeStr = formatFileSize(Number(file.size) || buffer.byteLength);
         const lastModified = formatIsoToDisplay(file.modifiedTime);
-
+        const parseStarted = performance.now();
         const parseResult = parseExcelBuffer(
           buffer,
           file.name,
@@ -332,53 +422,92 @@ export async function getDriveFiles(forceRefresh = false): Promise<{
           lastModified,
           sizeStr
         );
+        parseMs += performance.now() - parseStarted;
 
-        if (parseResult.isDueFile && parseResult.customerLedger) {
-          parsedFiles.push(parseResult.customerLedger);
-        } else if (parseResult.generalExcelFile) {
-          parsedFiles.push(parseResult.generalExcelFile);
+        const parsed =
+          parseResult.isDueFile && parseResult.customerLedger
+            ? parseResult.customerLedger
+            : parseResult.generalExcelFile;
+        if (!parsed) {
+          failedFiles.push(file.name);
+          if (cached) parsedFiles.push(cached.parsed);
+          return;
         }
+
+        parsedById.set(file.id, { modifiedTime, parsed });
+        downloaded += 1;
+        parsedFiles.push(parsed);
       } catch (fileErr) {
+        failedFiles.push(file.name);
         console.warn(
-          `[DriveService] Failed to parse workbook ${file.id}:`,
+          `[drive] skipped file ${file.id}:`,
           fileErr instanceof Error ? fileErr.message : String(fileErr)
         );
+        if (cached) parsedFiles.push(cached.parsed);
       }
     });
+
+    if (failedFiles.length > 0) {
+      console.log(`[drive] failed files: ${failedFiles.join(", ")}`);
+    }
+
+    console.log(`[drive] files downloaded=${downloaded} reused=${reused}`);
+    console.log(`[drive] download total ${Math.round(downloadMs)}ms`);
+    console.log(`[drive] parse total ${Math.round(parseMs)}ms`);
+    console.log(`[drive] fetch wall ${Math.round(performance.now() - fetchStarted)}ms`);
 
     console.log(
       `[DriveService] Parsed ${parsedFiles.length} workbooks (${parsedFiles.filter((f) => f.isDueFile).length} ledgers, ${parsedFiles.filter((f) => !f.isDueFile).length} other).`
     );
 
-    memoryCache = {
-      files: parsedFiles,
-      cachedAt: now,
-      syncedAtStr: syncedAt,
-      error: null,
-    };
-
-    return {
-      files: parsedFiles,
-      syncedAt,
-      error: null,
-    };
+    return rememberWorkspace(
+      {
+        ok: true,
+        files: parsedFiles,
+        items,
+        signature,
+        failedFiles,
+        syncedAt,
+        syncedAtIso,
+        error: null,
+      },
+      now
+    );
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     console.error("[DriveService] Google Drive API connection failed:", errorMsg);
-
-    memoryCache = {
-      files: [],
-      cachedAt: now,
-      syncedAtStr: syncedAt,
-      error: `Drive API Error: ${errorMsg}`,
-    };
-
-    return {
-      files: [],
-      syncedAt,
-      error: memoryCache.error,
-    };
+    return fail(`Drive API Error: ${errorMsg}`);
   }
+}
+
+/**
+ * Lists and parses all .xls and .xlsx files from the configured Google Drive folder.
+ * NEVER silently falls back to demo data.
+ * forceRefresh re-lists and revalidates each file by modifiedTime. It does not drop parsed copies.
+ */
+export async function getDriveFiles(forceRefresh = false): Promise<{
+  files: DriveExcelFile[];
+  syncedAt: string;
+  error?: string | null;
+}> {
+  const loaded = await loadDriveWorkspace(forceRefresh);
+  return { files: loaded.files, syncedAt: loaded.syncedAt, error: loaded.error };
+}
+
+async function downloadDriveMedia(
+  drive: ReturnType<typeof createDriveClient>,
+  fileId: string
+): Promise<Buffer> {
+  const response = await withDriveRetry("files.get media", () =>
+    drive.files.get(
+      { fileId, alt: "media", supportsAllDrives: true },
+      {
+        responseType: "arraybuffer",
+        signal: AbortSignal.timeout(DRIVE_REQUEST_TIMEOUT_MS),
+      }
+    )
+  );
+  return Buffer.from(response.data as ArrayBuffer);
 }
 
 export async function getDriveFileById(fileId: string): Promise<DriveExcelFile | null> {
@@ -412,9 +541,14 @@ export async function downloadDriveExcelInFolder(fileId: string): Promise<{
     return null;
   }
 
-  const fileMedia = await drive.files.get(
-    { fileId, alt: "media", supportsAllDrives: true },
-    { responseType: "arraybuffer" }
+  const fileMedia = await withDriveRetry("files.get media", () =>
+    drive.files.get(
+      { fileId, alt: "media", supportsAllDrives: true },
+      {
+        responseType: "arraybuffer",
+        signal: AbortSignal.timeout(DRIVE_REQUEST_TIMEOUT_MS),
+      }
+    )
   );
 
   return {
@@ -466,7 +600,7 @@ export function getDriveStatus(): DriveConfigStatus {
     clientEmailMasked,
     scope: "https://www.googleapis.com/auth/drive.readonly",
     mode,
-    lastSyncedAt: memoryCache?.syncedAtStr || null,
+    lastSyncedAt: memoryCache?.syncedAt || null,
     fileCount: files.length,
     dueCount,
     otherCount,
@@ -479,14 +613,22 @@ export function getDriveStatus(): DriveConfigStatus {
   };
 }
 
+/** Drops the short-lived bundle only. Parsed workbooks stay until a hard reset. */
 export function invalidateDriveCache() {
   memoryCache = null;
 }
 
+/** Clears parsed workbooks and listings. Settings refresh is the only caller. */
+export function resetDriveParsedCache() {
+  parsedById.clear();
+  memoryCache = null;
+  clearFolderListCache();
+}
+
 export function getParsedDriveFileMap(): Map<string, DriveExcelFile> {
   const map = new Map<string, DriveExcelFile>();
-  for (const file of memoryCache?.files || []) {
-    map.set(file.id, file);
+  for (const entry of parsedById.values()) {
+    map.set(entry.parsed.id, entry.parsed);
   }
   return map;
 }

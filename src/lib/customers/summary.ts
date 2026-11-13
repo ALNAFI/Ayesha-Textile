@@ -10,15 +10,11 @@ import type {
   CustomerListSnapshot,
 } from "@/lib/customers/types";
 import {
-  getDriveFiles,
-  invalidateDriveCache,
-  isDriveConfigured,
   getDriveStatus,
+  isDriveConfigured,
+  loadDriveWorkspace,
+  type DriveWorkspace,
 } from "@/lib/drive/service";
-import {
-  invalidateDriveMetaCache,
-  listDriveExcelMetadata,
-} from "@/lib/drive/list";
 import type { DriveExcelFile } from "@/lib/excel/ledger";
 
 const OUTDATED_MS = 90 * 24 * 60 * 60 * 1000;
@@ -38,43 +34,14 @@ function emptyCounts(): CustomerListSnapshot["statusCounts"] {
   };
 }
 
-export async function getCustomersSnapshot(
-  forceRefresh = false
-): Promise<CustomerListSnapshot> {
-  if (forceRefresh) {
-    invalidateDriveCache();
-    invalidateDriveMetaCache();
-  }
-
-  if (!isDriveConfigured()) {
-    const status = getDriveStatus();
-    return {
-      available: false,
-      status: "not_configured",
-      message:
-        status.message ||
-        "Google Drive credentials are not configured yet. Customer balances will appear after Drive integration.",
-      refreshedAt: null,
-      refreshedAtIso: null,
-      totalCount: 0,
-      statusCounts: emptyCounts(),
-      items: [],
-    };
-  }
-
-  // Metadata for classification + dates; parsed ledgers for balances (cached).
-  const [metaResult, parsedResult] = await Promise.all([
-    listDriveExcelMetadata(forceRefresh),
-    getDriveFiles(forceRefresh),
-  ]);
-
-  if (metaResult.error && metaResult.items.length === 0) {
+export function buildCustomersSnapshot(loaded: DriveWorkspace): CustomerListSnapshot {
+  if (!loaded.ok && loaded.items.length === 0) {
     return {
       available: false,
       status: "error",
-      message: metaResult.error,
-      refreshedAt: metaResult.syncedAt,
-      refreshedAtIso: metaResult.syncedAtIso,
+      message: loaded.error || "Google Drive could not be reached.",
+      refreshedAt: loaded.syncedAt,
+      refreshedAtIso: loaded.syncedAtIso,
       totalCount: 0,
       statusCounts: emptyCounts(),
       items: [],
@@ -82,7 +49,7 @@ export async function getCustomersSnapshot(
   }
 
   const parsedMap = new Map<string, DriveExcelFile>();
-  for (const file of parsedResult.files) {
+  for (const file of loaded.files) {
     parsedMap.set(file.id, file);
   }
 
@@ -90,7 +57,7 @@ export async function getCustomersSnapshot(
   const items: CustomerListItem[] = [];
   const statusCounts = emptyCounts();
 
-  for (const meta of metaResult.items) {
+  for (const meta of loaded.items) {
     const classification = classifyByFilename(meta.name);
     if (classification.kind !== "customer") continue;
 
@@ -124,8 +91,7 @@ export async function getCustomersSnapshot(
 
   const unavailable = statusCounts.unavailable;
   const messageParts: string[] = [];
-  if (metaResult.error) messageParts.push(metaResult.error);
-  if (parsedResult.error) messageParts.push(parsedResult.error);
+  if (loaded.error) messageParts.push(loaded.error);
   if (unavailable > 0) {
     messageParts.push(
       `${unavailable} customer ledger${unavailable === 1 ? "" : "s"} could not be calculated reliably.`
@@ -136,10 +102,32 @@ export async function getCustomersSnapshot(
     available: true,
     status: "ready",
     message: messageParts.join(" ") || "Live Google Drive customer ledgers.",
-    refreshedAt: metaResult.syncedAt,
-    refreshedAtIso: metaResult.syncedAtIso,
+    refreshedAt: loaded.syncedAt,
+    refreshedAtIso: loaded.syncedAtIso,
     totalCount: items.length,
     statusCounts,
     items,
   };
+}
+
+export async function getCustomersSnapshot(
+  forceRefresh = false
+): Promise<CustomerListSnapshot> {
+  if (!isDriveConfigured()) {
+    const status = getDriveStatus();
+    return {
+      available: false,
+      status: "not_configured",
+      message:
+        status.message ||
+        "Google Drive credentials are not configured yet. Customer balances will appear after Drive integration.",
+      refreshedAt: null,
+      refreshedAtIso: null,
+      totalCount: 0,
+      statusCounts: emptyCounts(),
+      items: [],
+    };
+  }
+
+  return buildCustomersSnapshot(await loadDriveWorkspace(forceRefresh));
 }

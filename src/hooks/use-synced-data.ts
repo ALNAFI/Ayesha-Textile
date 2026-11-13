@@ -3,11 +3,27 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cacheGet, cachePeek, cacheSet } from "@/lib/client-cache";
 
-export type SyncStatus = "loading" | "syncing" | "fresh" | "offline" | "error";
+export type SyncStatus = "loading" | "syncing" | "fresh" | "partial" | "offline" | "error";
 
 const CACHE_VERSION = 1;
+const SYNC_LOCK = "ayesha-sync";
+const SYNC_CHANNEL = "ayesha-sync";
+const PARTIAL_AT_KEY = "last-partial-at";
+const PARTIAL_RETRY_COOLDOWN_MS = 5 * 60 * 1000;
+const CACHE_KEYS = ["dashboard", "customers"] as const;
 
 type CacheRecord<T> = { v: number; data: T; sig: string };
+type SyncResult = "fresh" | "partial" | "offline" | "error";
+
+type SyncPayload = {
+  signature: string | null;
+  complete?: boolean;
+  failedFiles?: unknown;
+  dashboard: unknown;
+  customers: unknown;
+};
+
+let tabWasHidden = false;
 
 function asCurrent<T>(value: unknown): CacheRecord<T> | undefined {
   if (typeof value !== "object" || value === null) return undefined;
@@ -18,14 +34,165 @@ function asCurrent<T>(value: unknown): CacheRecord<T> | undefined {
   return record as CacheRecord<T>;
 }
 
-type SyncResult = "fresh" | "offline" | "error";
+const listeners = new Set<() => void>();
+let syncInflight: Promise<SyncResult> | null = null;
+let channel: BroadcastChannel | null = null;
 
-const inflight = new Map<string, Promise<SyncResult>>();
+function notify() {
+  for (const listener of listeners) listener();
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function openSyncChannel() {
+  if (typeof window === "undefined" || !("BroadcastChannel" in window)) return;
+  if (channel) return;
+  channel = new BroadcastChannel(SYNC_CHANNEL);
+  channel.onmessage = () => notify();
+}
+
+function publishSync() {
+  notify();
+  try {
+    openSyncChannel();
+    channel?.postMessage({ type: "synced" });
+  } catch {
+    // BroadcastChannel can be missing or closed. Other tabs still recheck on focus.
+  }
+}
+
+async function readRecord(key: string) {
+  return asCurrent(await cacheGet<unknown>(key));
+}
+
+async function fetchSignature(): Promise<string | null> {
+  try {
+    const response = await fetch("/api/drive-signature", { cache: "no-store" });
+    if (!response.ok) return null;
+    const body = (await response.json()) as { signature?: unknown };
+    if (typeof body.signature !== "string" || body.signature.length === 0) return null;
+    return body.signature;
+  } catch {
+    return null;
+  }
+}
+
+function recordsMatch(
+  signature: string,
+  records: Array<CacheRecord<unknown> | undefined>
+) {
+  return records.every((record) => record?.sig === signature);
+}
+
+function isIncomplete(records: Array<CacheRecord<unknown> | undefined>) {
+  return records.every((record) => record != null && record.sig === "");
+}
+
+function partialAttemptAt(value: unknown): number | null {
+  if (typeof value !== "object" || value === null) return null;
+  const mark = value as { v?: unknown; at?: unknown };
+  if (mark.v !== CACHE_VERSION || typeof mark.at !== "number") return null;
+  return mark.at;
+}
+
+async function readLastPartialAt(): Promise<number | null> {
+  return partialAttemptAt(await cacheGet<unknown>(PARTIAL_AT_KEY));
+}
+
+function partialCoolingDown(at: number | null, now = Date.now()): boolean {
+  return at != null && now - at < PARTIAL_RETRY_COOLDOWN_MS;
+}
+
+async function writeLastPartialAt(at: number | null): Promise<void> {
+  await cacheSet(PARTIAL_AT_KEY, { v: CACHE_VERSION, at });
+}
+
+async function withSyncLock<T>(run: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
+  if (!locks?.request) return run();
+  return locks.request(SYNC_LOCK, () => run());
+}
+
+async function runSharedSync(force: boolean): Promise<SyncResult> {
+  if (!force && partialCoolingDown(await readLastPartialAt())) return "partial";
+
+  const before = await Promise.all(CACHE_KEYS.map((key) => readRecord(key)));
+  const startedIncomplete = isIncomplete(before);
+  const signature = await fetchSignature();
+  if (!signature) return before.some(Boolean) ? "offline" : "error";
+  if (!force && recordsMatch(signature, before)) {
+    await writeLastPartialAt(null);
+    return "fresh";
+  }
+
+  try {
+    return await withSyncLock(async () => {
+      if (!force && partialCoolingDown(await readLastPartialAt())) return "partial";
+
+      const again = await Promise.all(CACHE_KEYS.map((key) => readRecord(key)));
+      const signatureAgain = await fetchSignature();
+      if (!signatureAgain) return again.some(Boolean) ? "offline" : "error";
+      if (!force && recordsMatch(signatureAgain, again)) {
+        await writeLastPartialAt(null);
+        return "fresh";
+      }
+      // Another tab already stored this attempt as incomplete. Do not POST again.
+      if (!force && !startedIncomplete && isIncomplete(again)) return "partial";
+
+      const response = await fetch("/api/sync", { method: "POST", cache: "no-store" });
+      if (!response.ok) throw new Error("sync failed");
+      const payload = (await response.json()) as Partial<SyncPayload>;
+      if (payload.dashboard == null || payload.customers == null) {
+        throw new Error("sync payload");
+      }
+      const saved =
+        payload.complete === false || typeof payload.signature !== "string"
+          ? ""
+          : payload.signature;
+      const incomplete = saved === "";
+      await cacheSet("dashboard", {
+        v: CACHE_VERSION,
+        data: payload.dashboard,
+        sig: saved,
+      });
+      await cacheSet("customers", {
+        v: CACHE_VERSION,
+        data: payload.customers,
+        sig: saved,
+      });
+      await writeLastPartialAt(incomplete ? Date.now() : null);
+      publishSync();
+      return incomplete ? "partial" : "fresh";
+    });
+  } catch {
+    const latest = await Promise.all(CACHE_KEYS.map((key) => readRecord(key)));
+    return latest.some(Boolean) ? "offline" : "error";
+  }
+}
+
+function startSync(force: boolean): Promise<SyncResult> {
+  if (syncInflight) {
+    if (!force) return syncInflight;
+    const current = syncInflight;
+    return current.then(() => startSync(true));
+  }
+  const job = runSharedSync(force).finally(() => {
+    if (syncInflight === job) syncInflight = null;
+  });
+  syncInflight = job;
+  return job;
+}
 
 export function useSyncedData<T>(key: string, path: string) {
+  void path;
   const seeded = asCurrent<T>(cachePeek<unknown>(key));
   const [data, setData] = useState<T | null>(seeded?.data ?? null);
-  const [status, setStatus] = useState<SyncStatus>(seeded ? "syncing" : "loading");
+  const [status, setStatus] = useState<SyncStatus>(
+    seeded?.sig === "" ? "partial" : seeded ? "syncing" : "loading"
+  );
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -35,118 +202,65 @@ export function useSyncedData<T>(key: string, path: string) {
     };
   }, []);
 
-  const applyCached = useCallback(
-    async (result: SyncResult) => {
-      const cached = asCurrent<T>(await cacheGet<unknown>(key));
-      if (!mounted.current) return;
-      if (cached) setData(cached.data);
-      setStatus(result);
-    },
-    [key]
-  );
-
-  const execute = useCallback(async (force: boolean): Promise<SyncResult> => {
+  const applyFromCache = useCallback(async (result: SyncResult) => {
     const cached = asCurrent<T>(await cacheGet<unknown>(key));
-    if (!mounted.current) {
-      return cached ? "offline" : "error";
+    if (!mounted.current) return;
+    if (cached) setData(cached.data);
+    if (result === "offline" || result === "error") {
+      setStatus(cached ? "offline" : "error");
+      return;
     }
-    if (cached) {
-      setData(cached.data);
-      setStatus("syncing");
+    if (!cached) {
+      setStatus("error");
+      return;
     }
-
-    try {
-      const signatureResponse = await fetch("/api/drive-signature", {
-        cache: "no-store",
-      });
-      if (!signatureResponse.ok) {
-        throw new Error("signature failed");
-      }
-      const body = (await signatureResponse.json()) as { signature?: unknown };
-      if (typeof body.signature !== "string" || body.signature.length === 0) {
-        throw new Error("signature missing");
-      }
-      if (!mounted.current) return cached ? "offline" : "error";
-
-      if (!force && cached?.sig === body.signature) {
-        setStatus("fresh");
-        return "fresh";
-      }
-
-      const response = await fetch(path, {
-        method: "POST",
-        cache: "no-store",
-      });
-      if (!response.ok) {
-        throw new Error("sync failed");
-      }
-      const next = (await response.json()) as T;
-      await cacheSet(key, { v: CACHE_VERSION, data: next, sig: body.signature });
-      if (!mounted.current) return "fresh";
-      setData(next);
-      setStatus("fresh");
-      return "fresh";
-    } catch {
-      const result: SyncResult = cached ? "offline" : "error";
-      if (mounted.current) setStatus(result);
-      return result;
+    if (cached.sig === "") {
+      setStatus("partial");
+      return;
     }
-  }, [key, path]);
+    setStatus("fresh");
+  }, [key]);
 
-  const run = useCallback(
-    async (force = false) => {
-      const current = inflight.get(key);
-      if (current) {
-        const cachedNow = asCurrent<T>(await cacheGet<unknown>(key));
-        if (mounted.current && cachedNow) {
-          setData(cachedNow.data);
-          setStatus("syncing");
-        }
-        const result = await current;
-        if (!mounted.current) return;
-        if (!force) {
-          await applyCached(result);
-          return;
-        }
-      }
-
-      if (inflight.has(key)) {
-        const result = await inflight.get(key);
-        if (!mounted.current || result == null) return;
-        if (!force) {
-          await applyCached(result);
-          return;
-        }
-      }
-
-      const job = execute(force);
-      inflight.set(key, job);
-      try {
-        await job;
-      } finally {
-        if (inflight.get(key) === job) {
-          inflight.delete(key);
-        }
-      }
-    },
-    [applyCached, execute, key]
-  );
+  const run = useCallback(async (force = false) => {
+    const cached = asCurrent<T>(await cacheGet<unknown>(key));
+    if (!mounted.current) return;
+    if (cached) setData(cached.data);
+    if (!force && partialCoolingDown(await readLastPartialAt())) {
+      if (!mounted.current) return;
+      setStatus(cached ? "partial" : "error");
+      return;
+    }
+    if (!mounted.current) return;
+    if (cached) setStatus("syncing");
+    const result = await startSync(force);
+    if (!mounted.current) return;
+    await applyFromCache(result);
+  }, [applyFromCache, key]);
 
   useEffect(() => {
+    openSyncChannel();
+    const unsubscribe = subscribe(() => {
+      void applyFromCache("fresh");
+    });
     const timer = window.setTimeout(() => {
       void run(false);
     }, 0);
     function onVisible() {
-      if (document.visibilityState === "visible") {
-        void run(false);
+      if (document.visibilityState === "hidden") {
+        tabWasHidden = true;
+        return;
       }
+      if (!tabWasHidden) return;
+      tabWasHidden = false;
+      void run(false);
     }
     document.addEventListener("visibilitychange", onVisible);
     return () => {
+      unsubscribe();
       window.clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [run]);
+  }, [applyFromCache, run]);
 
   const refresh = useCallback(() => run(true), [run]);
 

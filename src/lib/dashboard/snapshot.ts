@@ -6,15 +6,11 @@ import type {
   DashboardSnapshot,
 } from "@/lib/dashboard/types";
 import {
-  getDriveFiles,
   getDriveStatus,
-  invalidateDriveCache,
   isDriveConfigured,
+  loadDriveWorkspace,
+  type DriveWorkspace,
 } from "@/lib/drive/service";
-import {
-  invalidateDriveMetaCache,
-  listDriveExcelMetadata,
-} from "@/lib/drive/list";
 import type { CustomerLedger, DriveExcelFile } from "@/lib/excel/ledger";
 
 function customerHref(id: string) {
@@ -45,14 +41,7 @@ function outstandingFromParsed(
   return { value: raw, available: true };
 }
 
-export async function getDashboardSnapshot(
-  forceRefresh = false
-): Promise<DashboardSnapshot> {
-  if (forceRefresh) {
-    invalidateDriveCache();
-    invalidateDriveMetaCache();
-  }
-
+export function buildDashboardSnapshot(loaded: DriveWorkspace): DashboardSnapshot {
   const emptyStats = {
     totalOutstanding: 0,
     totalCustomers: 0,
@@ -61,35 +50,13 @@ export async function getDashboardSnapshot(
     incompleteCustomerCount: 0,
   };
 
-  if (!isDriveConfigured()) {
-    const status = getDriveStatus();
-    return {
-      available: false,
-      status: "not_configured",
-      message:
-        status.message ||
-        "Google Drive credentials are not configured yet. Dashboard totals will appear after Drive integration.",
-      refreshedAt: null,
-      refreshedAtIso: null,
-      stats: emptyStats,
-      recentFiles: [],
-      searchItems: [],
-    };
-  }
-
-  const [metaResult, parsedResult] = await Promise.all([
-    listDriveExcelMetadata(forceRefresh),
-    // Parsed ledgers power outstanding totals; metadata powers counts/search/recents.
-    getDriveFiles(forceRefresh),
-  ]);
-
-  if (metaResult.error && metaResult.items.length === 0) {
+  if (!loaded.ok && loaded.items.length === 0) {
     return {
       available: false,
       status: "error",
-      message: metaResult.error,
-      refreshedAt: metaResult.syncedAt,
-      refreshedAtIso: metaResult.syncedAtIso,
+      message: loaded.error || "Google Drive could not be reached.",
+      refreshedAt: loaded.syncedAt,
+      refreshedAtIso: loaded.syncedAtIso,
       stats: emptyStats,
       recentFiles: [],
       searchItems: [],
@@ -97,7 +64,7 @@ export async function getDashboardSnapshot(
   }
 
   const parsedMap = new Map<string, DriveExcelFile>();
-  for (const file of parsedResult.files) {
+  for (const file of loaded.files) {
     parsedMap.set(file.id, file);
   }
   const searchItems: DashboardFileItem[] = [];
@@ -107,7 +74,7 @@ export async function getDashboardSnapshot(
   let totalCustomers = 0;
   let otherFiles = 0;
 
-  for (const meta of metaResult.items) {
+  for (const meta of loaded.items) {
     const classification = classifyByFilename(meta.name);
 
     if (classification.kind === "customer") {
@@ -160,11 +127,11 @@ export async function getDashboardSnapshot(
     message:
       incompleteCustomerCount > 0
         ? `Outstanding excludes ${incompleteCustomerCount} customer file${incompleteCustomerCount === 1 ? "" : "s"} without a valid parsed balance.`
-        : metaResult.error
-          ? metaResult.error
+        : loaded.error
+          ? loaded.error
           : "Live Google Drive data.",
-    refreshedAt: metaResult.syncedAt,
-    refreshedAtIso: metaResult.syncedAtIso,
+    refreshedAt: loaded.syncedAt,
+    refreshedAtIso: loaded.syncedAtIso,
     stats: {
       totalOutstanding,
       totalCustomers,
@@ -175,4 +142,33 @@ export async function getDashboardSnapshot(
     recentFiles,
     searchItems,
   };
+}
+
+export async function getDashboardSnapshot(
+  forceRefresh = false
+): Promise<DashboardSnapshot> {
+  if (!isDriveConfigured()) {
+    const status = getDriveStatus();
+    const emptyStats = {
+      totalOutstanding: 0,
+      totalCustomers: 0,
+      otherFiles: 0,
+      outstandingIncomplete: false,
+      incompleteCustomerCount: 0,
+    };
+    return {
+      available: false,
+      status: "not_configured",
+      message:
+        status.message ||
+        "Google Drive credentials are not configured yet. Dashboard totals will appear after Drive integration.",
+      refreshedAt: null,
+      refreshedAtIso: null,
+      stats: emptyStats,
+      recentFiles: [],
+      searchItems: [],
+    };
+  }
+
+  return buildDashboardSnapshot(await loadDriveWorkspace(forceRefresh));
 }
