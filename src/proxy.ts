@@ -7,6 +7,8 @@ const PUBLIC_PATHS = new Set(["/login"]);
 
 function isPublicAsset(pathname: string) {
   return (
+    pathname === "/sw.js" ||
+    pathname === "/manifest.webmanifest" ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
     pathname.startsWith("/icons") ||

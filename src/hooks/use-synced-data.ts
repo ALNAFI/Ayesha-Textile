@@ -3,13 +3,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cacheGet, cachePeek, cacheSet } from "@/lib/client-cache";
 
-export type SyncStatus = "loading" | "syncing" | "fresh" | "partial" | "offline" | "error";
+export type SyncStatus =
+  | "loading"
+  | "syncing"
+  | "fresh"
+  | "uptodate"
+  | "partial"
+  | "offline"
+  | "error";
 
 const CACHE_VERSION = 1;
 const SYNC_LOCK = "ayesha-sync";
 const SYNC_CHANNEL = "ayesha-sync";
 const PARTIAL_AT_KEY = "last-partial-at";
 const PARTIAL_RETRY_COOLDOWN_MS = 5 * 60 * 1000;
+const REFRESH_COOLDOWN_MS = 10 * 1000;
+const UP_TO_DATE_MS = 2 * 1000;
 const CACHE_KEYS = ["dashboard", "customers"] as const;
 
 type CacheRecord<T> = { v: number; data: T; sig: string };
@@ -24,6 +33,21 @@ type SyncPayload = {
 };
 
 let tabWasHidden = false;
+let refreshLocked = false;
+const refreshListeners = new Set<() => void>();
+
+function notifyRefreshLock() {
+  for (const listener of refreshListeners) listener();
+}
+
+function lockRefreshButton() {
+  refreshLocked = true;
+  notifyRefreshLock();
+  window.setTimeout(() => {
+    refreshLocked = false;
+    notifyRefreshLock();
+  }, REFRESH_COOLDOWN_MS);
+}
 
 function asCurrent<T>(value: unknown): CacheRecord<T> | undefined {
   if (typeof value !== "object" || value === null) return undefined;
@@ -173,6 +197,30 @@ async function runSharedSync(force: boolean): Promise<SyncResult> {
   }
 }
 
+async function refreshIfNeeded(): Promise<SyncResult | "uptodate"> {
+  const before = await Promise.all(CACHE_KEYS.map((key) => readRecord(key)));
+  const lastWasPartial = isIncomplete(before) || (await readLastPartialAt()) != null;
+  const signature = await fetchSignature();
+  if (!signature) return before.some(Boolean) ? "offline" : "error";
+  if (!lastWasPartial && recordsMatch(signature, before)) return "uptodate";
+  return startSync(true);
+}
+
+/** Settings full resync: hard-reset server caches, then always POST /api/sync. */
+export async function fullResync(): Promise<{ resetOk: boolean; result: SyncResult }> {
+  let resetOk = false;
+  try {
+    const reset = await fetch("/api/settings/refresh", {
+      method: "POST",
+      cache: "no-store",
+    });
+    resetOk = reset.ok;
+  } catch {
+    resetOk = false;
+  }
+  return { resetOk, result: await startSync(true) };
+}
+
 function startSync(force: boolean): Promise<SyncResult> {
   if (syncInflight) {
     if (!force) return syncInflight;
@@ -193,12 +241,16 @@ export function useSyncedData<T>(key: string, path: string) {
   const [status, setStatus] = useState<SyncStatus>(
     seeded?.sig === "" ? "partial" : seeded ? "syncing" : "loading"
   );
+  const [refreshBusy, setRefreshBusy] = useState(refreshLocked);
   const mounted = useRef(true);
 
   useEffect(() => {
     mounted.current = true;
+    const onLock = () => setRefreshBusy(refreshLocked);
+    refreshListeners.add(onLock);
     return () => {
       mounted.current = false;
+      refreshListeners.delete(onLock);
     };
   }, []);
 
@@ -262,7 +314,28 @@ export function useSyncedData<T>(key: string, path: string) {
     };
   }, [applyFromCache, run]);
 
-  const refresh = useCallback(() => run(true), [run]);
+  const refresh = useCallback(() => {
+    if (refreshLocked) return;
+    lockRefreshButton();
+    void (async () => {
+      const cached = asCurrent<T>(await cacheGet<unknown>(key));
+      if (!mounted.current) return;
+      if (cached) {
+        setData(cached.data);
+        setStatus("syncing");
+      }
+      const result = await refreshIfNeeded();
+      if (!mounted.current) return;
+      if (result === "uptodate") {
+        setStatus("uptodate");
+        window.setTimeout(() => {
+          if (mounted.current) setStatus("fresh");
+        }, UP_TO_DATE_MS);
+        return;
+      }
+      await applyFromCache(result);
+    })();
+  }, [applyFromCache, key]);
 
-  return { data, status, refresh };
+  return { data, status, refresh, refreshBusy };
 }

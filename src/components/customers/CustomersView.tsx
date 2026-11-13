@@ -35,7 +35,7 @@ const STATUS_FILTERS: Array<{
 ];
 
 export function CustomersView() {
-  const { data, status, refresh } = useSyncedData<CustomerListSnapshot>(
+  const { data, status, refresh, refreshBusy } = useSyncedData<CustomerListSnapshot>(
     "customers",
     "/api/customers"
   );
@@ -129,7 +129,7 @@ export function CustomersView() {
         <button
           type="button"
           onClick={() => void refresh()}
-          disabled={syncing}
+          disabled={syncing || refreshBusy}
           className={cn(
             "inline-flex h-10 items-center justify-center gap-2 self-start rounded-[var(--radius-md)] border border-border bg-surface px-3.5 text-sm font-medium text-foreground",
             "transition-[background-color,transform,opacity] duration-[var(--motion-fast)] ease-[var(--ease-out)]",
@@ -137,12 +137,12 @@ export function CustomersView() {
             "disabled:cursor-not-allowed disabled:opacity-70"
           )}
         >
-          {syncing ? (
+          {syncing || refreshBusy ? (
             <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden />
           ) : (
             <RefreshCw className="h-4 w-4 text-muted" aria-hidden />
           )}
-          {syncing ? "Refreshing…" : "Refresh"}
+          {syncing || refreshBusy ? "Refreshing…" : "Refresh"}
         </button>
       </header>
 

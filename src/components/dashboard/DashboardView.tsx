@@ -17,7 +17,7 @@ import type { DashboardSnapshot } from "@/lib/dashboard/types";
 import { cn } from "@/lib/utils";
 
 export function DashboardView() {
-  const { data, status, refresh } = useSyncedData<DashboardSnapshot>(
+  const { data, status, refresh, refreshBusy } = useSyncedData<DashboardSnapshot>(
     "dashboard",
     "/api/dashboard"
   );
@@ -75,7 +75,7 @@ export function DashboardView() {
           <button
             type="button"
             onClick={() => void refresh()}
-            disabled={syncing}
+            disabled={syncing || refreshBusy}
             className={cn(
               "inline-flex h-10 items-center justify-center gap-2 rounded-[var(--radius-md)] border border-border bg-surface px-3.5 text-sm font-medium text-foreground",
               "transition-[background-color,transform,opacity] duration-[var(--motion-fast)] ease-[var(--ease-out)]",
@@ -83,12 +83,12 @@ export function DashboardView() {
               "disabled:cursor-not-allowed disabled:opacity-70"
             )}
           >
-            {syncing ? (
+            {syncing || refreshBusy ? (
               <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden />
             ) : (
               <RefreshCw className="h-4 w-4 text-muted" aria-hidden />
             )}
-            {syncing ? "Refreshing…" : "Refresh"}
+            {syncing || refreshBusy ? "Refreshing…" : "Refresh"}
           </button>
         </div>
       </header>

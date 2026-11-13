@@ -4,6 +4,7 @@ import { useTransition } from "react";
 import { LoaderCircle, LogOut } from "lucide-react";
 import { logoutAction } from "@/lib/auth/actions";
 import { cacheClear } from "@/lib/client-cache";
+import { clearCachedPages } from "@/lib/page-cache";
 import { cn } from "@/lib/utils";
 
 export function LogoutButton() {
@@ -16,6 +17,7 @@ export function LogoutButton() {
       onClick={() => {
         void (async () => {
           await cacheClear();
+          await clearCachedPages();
           startTransition(() => {
             void logoutAction();
           });

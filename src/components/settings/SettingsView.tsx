@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { LogoutButton } from "@/components/auth/LogoutButton";
 import { formatRefreshTime } from "@/lib/dashboard/format";
+import { fullResync } from "@/hooks/use-synced-data";
 import type { DriveHealth } from "@/lib/settings/types";
 import { cn } from "@/lib/utils";
 
@@ -26,7 +27,11 @@ export function SettingsView({
   version,
 }: SettingsViewProps) {
   const { theme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
   const activeTheme = mounted && theme === "dark" ? "dark" : mounted ? "light" : null;
   const [health, setHealth] = useState(initialHealth);
   const [syncedLabel, setSyncedLabel] = useState(initialSyncedLabel);
@@ -37,10 +42,6 @@ export function SettingsView({
     tone: "success" | "error";
     text: string;
   } | null>(null);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   function applyHealth(next: DriveHealth) {
     setHealth(next);
@@ -79,27 +80,31 @@ export function SettingsView({
     setRefreshing(true);
     setRefreshNote(null);
     try {
-      const res = await fetch("/api/settings/refresh", {
-        method: "POST",
-        cache: "no-store",
-      });
-      const body = (await res.json()) as { ok?: boolean; health?: DriveHealth };
-      if (body.health) applyHealth(body.health);
-      if (!res.ok || !body.ok || !body.health?.lastSyncedAt) {
+      const { resetOk, result } = await fullResync();
+      try {
+        const healthRes = await fetch("/api/settings/drive", { cache: "no-store" });
+        if (healthRes.ok) {
+          const health = (await healthRes.json()) as DriveHealth;
+          applyHealth(health);
+        }
+      } catch {
+        // The resync result still stands when the status label cannot be refreshed.
+      }
+      if (!resetOk || result === "error" || result === "offline") {
         setRefreshNote({
           tone: "error",
-          text: body.health?.message || "Data could not be refreshed.",
+          text: "Full resync could not finish. Try again when Drive is reachable.",
         });
         return;
       }
       setRefreshNote({
         tone: "success",
-        text: `Data refreshed ${formatRefreshTime(body.health.lastSyncedAt)}.`,
+        text: "Full resync finished. Every Excel file was downloaded again.",
       });
     } catch {
       setRefreshNote({
         tone: "error",
-        text: "Data could not be refreshed.",
+        text: "Full resync could not finish.",
       });
     } finally {
       setRefreshing(false);
@@ -221,10 +226,11 @@ export function SettingsView({
       <section className="settings-section space-y-4 border-t border-border pt-8">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h3 className="text-base font-semibold text-foreground">Data Refresh</h3>
+            <h3 className="text-base font-semibold text-foreground">Full resync</h3>
             <p className="mt-1 max-w-xl text-sm text-muted">
-              Reload Drive file metadata and clear cached ledger summaries.
-              Original files stay unchanged.
+              Clears the saved workbook cache on the server and downloads every
+              Excel file again. The Refresh button on Dashboard and Customers
+              only checks whether Drive changed. Original files stay unchanged.
             </p>
           </div>
           <button
@@ -233,7 +239,7 @@ export function SettingsView({
             disabled={refreshing}
             className="inline-flex h-10 items-center justify-center rounded-[var(--radius-md)] border border-border bg-surface px-3.5 text-sm font-medium text-foreground hover:bg-surface-muted disabled:opacity-70"
           >
-            {refreshing ? "Refreshing…" : "Refresh Data"}
+            {refreshing ? "Resyncing…" : "Full resync"}
           </button>
         </div>
         <p className="text-sm text-muted">
