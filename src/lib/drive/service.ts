@@ -7,6 +7,7 @@ import "server-only";
 import { google } from "googleapis";
 import type { DriveExcelFile } from "@/lib/excel/ledger";
 import { parseExcelBuffer } from "@/lib/excel/parser";
+import { isExcelDriveItem } from "@/lib/drive/excel-files";
 import { listAllFolderFiles, mapWithConcurrency } from "@/lib/drive/folder-list";
 
 export interface DriveConfigStatus {
@@ -288,17 +289,7 @@ export async function getDriveFiles(forceRefresh = false): Promise<{
       `[DriveService] Drive files.list returned ${allItems.length} total items in folder.`
     );
 
-    const excelFiles = allItems.filter((f) => {
-      const name = (f.name || "").toLowerCase();
-      const mime = f.mimeType || "";
-      return (
-        name.endsWith(".xlsx") ||
-        name.endsWith(".xls") ||
-        mime ===
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
-        mime === "application/vnd.ms-excel"
-      );
-    });
+    const excelFiles = allItems.filter(isExcelDriveItem);
 
     console.log(
       `[DriveService] Filtered ${excelFiles.length} Excel spreadsheet files (.xlsx/.xls).`

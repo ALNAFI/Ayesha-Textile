@@ -14,7 +14,7 @@ type HeaderProps = {
 
 export function Header({ pathname }: HeaderProps) {
   const title = getPageTitle(pathname);
-  const { setOpen, ensureLoaded } = useSearch();
+  const { setOpen } = useSearch();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [shortcutLabel, setShortcutLabel] = useState("Ctrl K");
   const menuRef = useRef<HTMLDivElement>(null);
@@ -40,7 +40,6 @@ export function Header({ pathname }: HeaderProps) {
 
   function openSearch() {
     setOpen(true);
-    void ensureLoaded();
   }
 
   return (

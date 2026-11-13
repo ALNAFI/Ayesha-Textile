@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   LoaderCircle,
   RefreshCw,
@@ -11,7 +11,9 @@ import {
 } from "lucide-react";
 import { CustomersDesktopTable } from "@/components/customers/CustomersDesktopTable";
 import { CustomersMobileCards } from "@/components/customers/CustomersMobileCards";
+import { SyncStatusBanner } from "@/components/shared/SyncStatusBanner";
 import { useFavorites } from "@/hooks/use-favorites";
+import { useSyncedData } from "@/hooks/use-synced-data";
 import { formatRefreshTime } from "@/lib/dashboard/format";
 import { matchesCustomerSearch } from "@/lib/customers/search";
 import { CUSTOMER_SORT_OPTIONS, sortCustomerItems } from "@/lib/customers/sort";
@@ -21,10 +23,6 @@ import type {
   CustomerStatusFilter,
 } from "@/lib/customers/types";
 import { cn } from "@/lib/utils";
-
-type CustomersViewProps = {
-  initialData: CustomerListSnapshot;
-};
 
 const STATUS_FILTERS: Array<{
   id: CustomerStatusFilter;
@@ -36,23 +34,27 @@ const STATUS_FILTERS: Array<{
   { id: "advance", label: "Advance" },
 ];
 
-export function CustomersView({ initialData }: CustomersViewProps) {
-  const [data, setData] = useState(initialData);
+export function CustomersView() {
+  const { data, status, refresh } = useSyncedData<CustomerListSnapshot>(
+    "customers",
+    "/api/customers"
+  );
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<CustomerStatusFilter>("all");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [sort, setSort] = useState<CustomerSort>("name-asc");
-  const [pending, startTransition] = useTransition();
+  const syncing = status === "syncing" || status === "loading";
   const { favorites, isFavorite, pruneMissing, ready } = useFavorites();
+  const items = useMemo(() => data?.items ?? [], [data]);
 
   useEffect(() => {
-    if (!ready || !data.available) return;
+    if (!ready || !data?.available) return;
     pruneMissing(new Set(data.items.map((item) => item.id)));
-  }, [data.available, data.items, pruneMissing, ready]);
+  }, [data, pruneMissing, ready]);
 
   const searched = useMemo(
-    () => data.items.filter((item) => matchesCustomerSearch(item, query)),
-    [data.items, query]
+    () => items.filter((item) => matchesCustomerSearch(item, query)),
+    [items, query]
   );
 
   const filterCounts = useMemo(() => {
@@ -82,20 +84,30 @@ export function CustomersView({ initialData }: CustomersViewProps) {
     return sortCustomerItems(next, sort);
   }, [searched, favoritesOnly, isFavorite, statusFilter, sort]);
 
-  async function refresh() {
-    startTransition(async () => {
-      const res = await fetch("/api/customers", {
-        method: "POST",
-        cache: "no-store",
-      });
-      if (!res.ok) return;
-      const next = (await res.json()) as CustomerListSnapshot;
-      setData(next);
-    });
+  if (!data) {
+    return status === "error" ? (
+      <div className="rounded-[var(--radius-lg)] border border-border bg-surface px-5 py-8 text-sm text-muted">
+        <p>Customer data could not be loaded.</p>
+        <button
+          type="button"
+          onClick={() => void refresh()}
+          className="mt-4 text-sm font-medium text-accent"
+        >
+          Try again
+        </button>
+      </div>
+    ) : (
+      <div className="space-y-4" aria-hidden>
+        <div className="h-8 w-40 animate-pulse rounded-md bg-surface-muted" />
+        <div className="h-24 animate-pulse rounded-[var(--radius-lg)] bg-surface-muted" />
+        <div className="h-64 animate-pulse rounded-[var(--radius-lg)] bg-surface-muted" />
+      </div>
+    );
   }
 
   return (
     <div className="customers-stagger space-y-6">
+      <SyncStatusBanner status={status} />
       <header className="customers-section flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
@@ -117,7 +129,7 @@ export function CustomersView({ initialData }: CustomersViewProps) {
         <button
           type="button"
           onClick={() => void refresh()}
-          disabled={pending}
+          disabled={syncing}
           className={cn(
             "inline-flex h-10 items-center justify-center gap-2 self-start rounded-[var(--radius-md)] border border-border bg-surface px-3.5 text-sm font-medium text-foreground",
             "transition-[background-color,transform,opacity] duration-[var(--motion-fast)] ease-[var(--ease-out)]",
@@ -125,12 +137,12 @@ export function CustomersView({ initialData }: CustomersViewProps) {
             "disabled:cursor-not-allowed disabled:opacity-70"
           )}
         >
-          {pending ? (
+          {syncing ? (
             <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden />
           ) : (
             <RefreshCw className="h-4 w-4 text-muted" aria-hidden />
           )}
-          {pending ? "Refreshing…" : "Refresh"}
+          {syncing ? "Refreshing…" : "Refresh"}
         </button>
       </header>
 

@@ -11,15 +11,14 @@ import {
 } from "react";
 import type { DashboardFileItem, DashboardSnapshot } from "@/lib/dashboard/types";
 import { GlobalSearch } from "@/components/search/GlobalSearch";
+import { useSyncedData } from "@/hooks/use-synced-data";
 
 type SearchContextValue = {
   open: boolean;
   setOpen: (open: boolean) => void;
   items: DashboardFileItem[];
   snapshot: DashboardSnapshot | null;
-  setSnapshot: (snapshot: DashboardSnapshot) => void;
   loading: boolean;
-  ensureLoaded: () => Promise<void>;
 };
 
 const SearchContext = createContext<SearchContextValue | null>(null);
@@ -34,29 +33,57 @@ export function useSearch() {
 
 export function SearchProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
-  const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
-  const [loading, setLoading] = useState(false);
+  const { data, status } = useSyncedData<DashboardSnapshot>(
+    "dashboard",
+    "/api/dashboard"
+  );
+  const loading = status === "loading" && data == null;
 
-  const ensureLoaded = useCallback(async () => {
-    if (snapshot || loading) return;
-    setLoading(true);
-    try {
-      const res = await fetch("/api/dashboard", { cache: "no-store" });
-      if (res.ok) {
-        const data = (await res.json()) as DashboardSnapshot;
-        setSnapshot(data);
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [snapshot, loading]);
+  const value = useMemo(
+    () => ({
+      open,
+      setOpen,
+      items: data?.searchItems ?? [],
+      snapshot: data,
+      loading,
+    }),
+    [open, data, loading]
+  );
+
+  return (
+    <SearchContext.Provider value={value}>
+      {children}
+      <SearchDialog
+        open={open}
+        setOpen={setOpen}
+        items={data?.searchItems ?? []}
+        snapshot={data}
+        loading={loading}
+      />
+    </SearchContext.Provider>
+  );
+}
+
+function SearchDialog({
+  open,
+  setOpen,
+  items,
+  snapshot,
+  loading,
+}: {
+  open: boolean;
+  setOpen: (open: boolean) => void;
+  items: DashboardFileItem[];
+  snapshot: DashboardSnapshot | null;
+  loading: boolean;
+}) {
+  const onOpenChange = useCallback((next: boolean) => setOpen(next), [setOpen]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setOpen(true);
-        void ensureLoaded();
       }
       if (event.key === "Escape") {
         setOpen(false);
@@ -64,43 +91,21 @@ export function SearchProvider({ children }: { children: ReactNode }) {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [ensureLoaded]);
-
-  useEffect(() => {
-    if (open) {
-      void ensureLoaded();
-    }
-  }, [open, ensureLoaded]);
-
-  const value = useMemo(
-    () => ({
-      open,
-      setOpen,
-      items: snapshot?.searchItems ?? [],
-      snapshot,
-      setSnapshot,
-      loading,
-      ensureLoaded,
-    }),
-    [open, snapshot, loading, ensureLoaded]
-  );
+  }, [setOpen]);
 
   return (
-    <SearchContext.Provider value={value}>
-      {children}
-      <GlobalSearch
-        mode="dialog"
-        open={open}
-        onOpenChange={setOpen}
-        items={snapshot?.searchItems ?? []}
-        unavailableMessage={
-          snapshot && !snapshot.available
-            ? snapshot.message
-            : loading
-              ? "Loading search index…"
-              : null
-        }
-      />
-    </SearchContext.Provider>
+    <GlobalSearch
+      mode="dialog"
+      open={open}
+      onOpenChange={onOpenChange}
+      items={items}
+      unavailableMessage={
+        snapshot && !snapshot.available
+          ? snapshot.message
+          : loading
+            ? "Loading search index…"
+            : null
+      }
+    />
   );
 }

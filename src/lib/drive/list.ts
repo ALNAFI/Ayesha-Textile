@@ -12,7 +12,7 @@ import {
   isDriveConfigured,
   maskString,
 } from "@/lib/drive/service";
-import { isExcelFileName } from "@/lib/dashboard/classify";
+import { isExcelDriveItem } from "@/lib/drive/excel-files";
 
 export type DriveExcelMeta = {
   id: string;
@@ -91,16 +91,7 @@ export async function listDriveExcelMetadata(forceRefresh = false): Promise<{
     const drive = createDriveClientFromEnv();
     const allItems = await listAllFolderFiles(drive, folderId);
     const items: DriveExcelMeta[] = allItems
-      .filter((file) => {
-        const name = file.name || "";
-        const mime = file.mimeType || "";
-        return (
-          isExcelFileName(name) ||
-          mime ===
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
-          mime === "application/vnd.ms-excel"
-        );
-      })
+      .filter(isExcelDriveItem)
       .filter((file) => Boolean(file.id && file.name))
       .map((file) => {
         const modifiedAt = file.modifiedTime

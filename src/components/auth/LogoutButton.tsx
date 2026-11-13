@@ -3,6 +3,7 @@
 import { useTransition } from "react";
 import { LoaderCircle, LogOut } from "lucide-react";
 import { logoutAction } from "@/lib/auth/actions";
+import { cacheClear } from "@/lib/client-cache";
 import { cn } from "@/lib/utils";
 
 export function LogoutButton() {
@@ -13,9 +14,12 @@ export function LogoutButton() {
       type="button"
       disabled={pending}
       onClick={() => {
-        startTransition(() => {
-          void logoutAction();
-        });
+        void (async () => {
+          await cacheClear();
+          startTransition(() => {
+            void logoutAction();
+          });
+        })();
       }}
       className={cn(
         "inline-flex h-10 items-center justify-center gap-2 rounded-[var(--radius-md)] border border-border bg-surface px-4 text-sm font-medium text-foreground",
