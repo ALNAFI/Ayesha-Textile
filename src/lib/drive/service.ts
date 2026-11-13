@@ -645,12 +645,11 @@ export function formatIsoToDisplay(isoStr?: string | null): string {
   try {
     const d = new Date(isoStr);
     if (isNaN(d.getTime())) return String(isoStr);
-    const day = String(d.getDate()).padStart(2, "0");
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    const year = d.getFullYear();
-    const hours = String(d.getHours()).padStart(2, "0");
-    const mins = String(d.getMinutes()).padStart(2, "0");
-    return `${day}/${month}/${year} ${hours}:${mins}`;
+    return new Intl.DateTimeFormat("en-GB", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    }).format(d);
   } catch {
     return "—";
   }

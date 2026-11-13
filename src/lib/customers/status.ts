@@ -33,9 +33,9 @@ export function statusFromBalance(
 export function statusLabel(status: CustomerFinancialStatus): string {
   switch (status) {
     case "outstanding":
-      return "Outstanding";
+      return "Due";
     case "settled":
-      return "Settled";
+      return "Paid";
     case "advance":
       return "Advance";
     case "unavailable":

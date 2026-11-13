@@ -19,29 +19,18 @@ export function StatCards({ stats, available }: StatCardsProps) {
         )}
       >
         <div className="flex items-start justify-between gap-4">
-          <div>
+          <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-accent-foreground/75">
-              Total Outstanding
+              Total Due
             </p>
-            <p className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
+            <p className="mt-3 whitespace-nowrap text-3xl font-semibold tracking-tight tabular-nums sm:text-4xl lg:text-5xl">
               {available ? formatBDT(stats.totalOutstanding) : "—"}
             </p>
           </div>
-          <span className="inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-md)] bg-accent-foreground/12">
+          <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-accent-foreground/12">
             <Wallet className="h-5 w-5" />
           </span>
         </div>
-        {stats.outstandingIncomplete ? (
-          <p className="mt-4 text-sm text-accent-foreground/75">
-            Incomplete: {stats.incompleteCustomerCount} customer file
-            {stats.incompleteCustomerCount === 1 ? "" : "s"} excluded without a
-            valid balance.
-          </p>
-        ) : (
-          <p className="mt-4 text-sm text-accent-foreground/75">
-            Sum of valid customer ledger balances only.
-          </p>
-        )}
       </article>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">

@@ -5,16 +5,15 @@ import {
   LoaderCircle,
   RefreshCw,
   Search,
-  Star,
   Users,
   X,
 } from "lucide-react";
 import { CustomersDesktopTable } from "@/components/customers/CustomersDesktopTable";
 import { CustomersMobileCards } from "@/components/customers/CustomersMobileCards";
 import { SyncStatusBanner } from "@/components/shared/SyncStatusBanner";
+import { RubberSegment } from "@/components/ui/rubber-segment";
 import { useFavorites } from "@/hooks/use-favorites";
 import { useSyncedData } from "@/hooks/use-synced-data";
-import { formatRefreshTime } from "@/lib/dashboard/format";
 import { matchesCustomerSearch } from "@/lib/customers/search";
 import { CUSTOMER_SORT_OPTIONS, sortCustomerItems } from "@/lib/customers/sort";
 import type {
@@ -25,13 +24,12 @@ import type {
 import { cn } from "@/lib/utils";
 
 const STATUS_FILTERS: Array<{
-  id: CustomerStatusFilter;
+  id: "all" | "outstanding" | "settled";
   label: string;
 }> = [
   { id: "all", label: "All" },
-  { id: "outstanding", label: "Outstanding" },
-  { id: "settled", label: "Settled" },
-  { id: "advance", label: "Advance" },
+  { id: "outstanding", label: "Due" },
+  { id: "settled", label: "Paid" },
 ];
 
 export function CustomersView() {
@@ -41,10 +39,9 @@ export function CustomersView() {
   );
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<CustomerStatusFilter>("all");
-  const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [sort, setSort] = useState<CustomerSort>("name-asc");
   const syncing = status === "syncing" || status === "loading";
-  const { favorites, isFavorite, pruneMissing, ready } = useFavorites();
+  const { pruneMissing, ready } = useFavorites();
   const items = useMemo(() => data?.items ?? [], [data]);
 
   useEffect(() => {
@@ -57,32 +54,24 @@ export function CustomersView() {
     [items, query]
   );
 
-  const filterCounts = useMemo(() => {
-    const base = favoritesOnly
-      ? searched.filter((item) => isFavorite(item.id))
-      : searched;
-
-    return {
-      all: base.length,
-      outstanding: base.filter((item) => item.status === "outstanding").length,
-      settled: base.filter((item) => item.status === "settled").length,
-      advance: base.filter((item) => item.status === "advance").length,
-    };
-  }, [searched, favoritesOnly, isFavorite]);
+  const filterCounts = useMemo(
+    () => ({
+      all: searched.length,
+      outstanding: searched.filter((item) => item.status === "outstanding")
+        .length,
+      settled: searched.filter((item) => item.status === "settled").length,
+    }),
+    [searched]
+  );
 
   const visible = useMemo(() => {
-    let next = searched;
-
-    if (favoritesOnly) {
-      next = next.filter((item) => isFavorite(item.id));
-    }
-
-    if (statusFilter !== "all") {
-      next = next.filter((item) => item.status === statusFilter);
-    }
+    const next =
+      statusFilter === "all"
+        ? searched
+        : searched.filter((item) => item.status === statusFilter);
 
     return sortCustomerItems(next, sort);
-  }, [searched, favoritesOnly, isFavorite, statusFilter, sort]);
+  }, [searched, statusFilter, sort]);
 
   if (!data) {
     return status === "error" ? (
@@ -98,9 +87,52 @@ export function CustomersView() {
       </div>
     ) : (
       <div className="space-y-4" aria-hidden>
-        <div className="h-8 w-40 animate-pulse rounded-md bg-surface-muted" />
-        <div className="h-24 animate-pulse rounded-[var(--radius-lg)] bg-surface-muted" />
-        <div className="h-64 animate-pulse rounded-[var(--radius-lg)] bg-surface-muted" />
+        <div className="h-11 animate-pulse rounded-[var(--radius-md)] bg-surface-muted" />
+        <div className="h-9 w-full max-w-md animate-pulse rounded-[9px] bg-surface-muted" />
+
+        {/* Mobile-only skeleton matching the card */}
+        <div className="grid grid-cols-1 gap-3 md:hidden">
+          {[0, 1, 2].map((index) => (
+            <div
+              key={index}
+              className="flex flex-col gap-3 rounded-[18px] border border-border bg-surface p-4"
+            >
+              <div className="flex items-center gap-3">
+                <div className="h-11 w-11 shrink-0 animate-pulse rounded-full bg-surface-muted" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="h-4 w-3/4 animate-pulse rounded bg-surface-muted" />
+                  <div className="h-3 w-1/2 animate-pulse rounded bg-surface-muted" />
+                </div>
+                <div className="h-11 w-11 shrink-0 animate-pulse rounded-xl bg-surface-muted" />
+              </div>
+              <div className="flex items-center justify-between border-t border-border pt-3">
+                <div className="h-6 w-16 animate-pulse rounded-full bg-surface-muted" />
+                <div className="h-6 w-20 animate-pulse rounded bg-surface-muted" />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* md+ skeleton unchanged */}
+        <div className="hidden grid-cols-1 gap-4 md:grid md:grid-cols-2">
+          {[0, 1, 2, 3].map((index) => (
+            <div
+              key={index}
+              className="flex flex-col gap-4 rounded-[20px] border border-border bg-surface p-5"
+            >
+              <div className="flex items-center gap-3.5">
+                <div className="h-12 w-12 shrink-0 animate-pulse rounded-[14px] bg-surface-muted" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="h-4 w-2/3 animate-pulse rounded bg-surface-muted" />
+                  <div className="h-3 w-1/2 animate-pulse rounded bg-surface-muted" />
+                </div>
+                <div className="h-11 w-11 shrink-0 animate-pulse rounded-xl bg-surface-muted" />
+              </div>
+              <div className="h-14 animate-pulse rounded-[14px] bg-surface-muted" />
+              <div className="h-3 w-28 animate-pulse rounded bg-surface-muted" />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -108,21 +140,13 @@ export function CustomersView() {
   return (
     <div className="customers-stagger space-y-6">
       <SyncStatusBanner status={status} />
-      <header className="customers-section flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <header className="customers-section hidden flex-col gap-4 md:flex lg:flex-row lg:items-end lg:justify-between">
         <div>
           <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
             Customers
           </h2>
           <p className="mt-1.5 text-sm text-muted">
-            View customer accounts and outstanding balances
-          </p>
-          <p className="mt-3 text-sm text-muted">
-            {data.available
-              ? `${data.totalCount} customer${data.totalCount === 1 ? "" : "s"}`
-              : "Drive customers unavailable"}
-            {data.refreshedAtIso
-              ? ` · Updated ${formatRefreshTime(data.refreshedAtIso)}`
-              : null}
+            View customer accounts and due balances
           </p>
         </div>
 
@@ -191,95 +215,60 @@ export function CustomersView() {
               ) : null}
             </div>
 
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-                <div
-                  role="tablist"
-                  aria-label="Customer status filters"
-                  className="inline-flex w-full flex-wrap gap-1 rounded-[var(--radius-md)] border border-border bg-surface p-1 shadow-[var(--shadow-soft)] sm:w-auto"
-                >
-                  {STATUS_FILTERS.map((item) => {
-                    const active = statusFilter === item.id;
-                    const count = filterCounts[item.id];
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        role="tab"
-                        aria-selected={active}
-                        onClick={() => setStatusFilter(item.id)}
-                        className={cn(
-                          "inline-flex flex-1 items-center justify-center gap-2 rounded-[var(--radius-sm)] px-3 py-2 text-sm font-medium sm:flex-none",
-                          "transition-[background-color,color,transform] duration-[var(--motion-fast)] ease-[var(--ease-out)]",
-                          active
-                            ? "bg-accent-soft text-foreground"
-                            : "text-muted hover:bg-surface-muted hover:text-foreground"
-                        )}
-                      >
-                        <span>{item.label}</span>
-                        <span
-                          className={cn(
-                            "rounded-full px-1.5 py-0.5 text-[0.65rem]",
-                            active
-                              ? "bg-background text-foreground"
-                              : "bg-surface-muted text-muted"
-                          )}
-                        >
-                          {count}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <button
-                  type="button"
-                  aria-pressed={favoritesOnly}
-                  onClick={() => setFavoritesOnly((value) => !value)}
-                  className={cn(
-                    "inline-flex h-10 items-center justify-center gap-2 rounded-[var(--radius-md)] border px-3.5 text-sm font-medium",
-                    "transition-[background-color,color,border-color,transform] duration-[var(--motion-fast)] ease-[var(--ease-out)]",
-                    "active:scale-[0.98]",
-                    favoritesOnly
-                      ? "border-accent/40 bg-accent-soft text-foreground"
-                      : "border-border bg-surface text-muted hover:bg-surface-muted hover:text-foreground"
-                  )}
-                >
-                  <Star
-                    className={cn("h-3.5 w-3.5", favoritesOnly && "fill-current text-accent")}
-                  />
-                  Favorites Only
-                  <span className="rounded-full bg-background px-1.5 py-0.5 text-[0.65rem] text-muted">
-                    {ready ? favorites.length : "—"}
-                  </span>
-                </button>
-              </div>
-
-              <label className="flex items-center gap-2 text-sm text-muted">
-                <span className="shrink-0">Sort</span>
-                <select
-                  value={sort}
-                  onChange={(event) =>
-                    setSort(event.target.value as CustomerSort)
-                  }
-                  className={cn(
-                    "h-10 min-w-48 rounded-[var(--radius-md)] border border-border bg-surface px-3 text-sm text-foreground shadow-[var(--shadow-soft)]",
-                    "transition-[border-color,box-shadow] duration-[var(--motion-fast)] ease-[var(--ease-out)]",
-                    "focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/20"
-                  )}
-                >
-                  {CUSTOMER_SORT_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            <div className="w-full max-w-full overflow-hidden rounded-[9px] border border-border bg-surface shadow-[var(--shadow-soft)] sm:max-w-md">
+              <RubberSegment
+                aria-label="Customer status filters"
+                items={STATUS_FILTERS.map((item) => ({
+                  value: item.id,
+                  label: (
+                    <span className="inline-flex items-center gap-1">
+                      <span>{item.label}</span>
+                      <span className="text-[0.65rem] opacity-70">
+                        {String(filterCounts[item.id]).padStart(2, "0")}
+                      </span>
+                    </span>
+                  ),
+                }))}
+                value={statusFilter === "advance" ? "all" : statusFilter}
+                onChange={(next) =>
+                  setStatusFilter(next as CustomerStatusFilter)
+                }
+                trackColor="transparent"
+                thumbColor="var(--accent-soft)"
+                textColor="var(--muted)"
+                activeTextColor="var(--foreground)"
+                size="sm"
+                radius={7}
+                inset={2}
+                equalSlots
+              />
             </div>
 
-            {data.statusCounts.unavailable > 0 ? (
-              <p className="text-xs text-muted">{data.message}</p>
-            ) : null}
+            <div className="flex items-center justify-between gap-3">
+              <p className="min-w-0 truncate text-xs text-muted">
+                {visible.length === 0
+                  ? "No customers match"
+                  : `Showing ${visible.length} of ${data.totalCount} `}
+              </p>
+              <select
+                value={sort}
+                aria-label="Sort customers"
+                onChange={(event) =>
+                  setSort(event.target.value as CustomerSort)
+                }
+                className={cn(
+                  "h-9 w-auto shrink-0 rounded-[var(--radius-md)] border border-border bg-surface px-2.5 text-sm text-foreground shadow-[var(--shadow-soft)] sm:min-w-44",
+                  "transition-[border-color,box-shadow] duration-[var(--motion-fast)] ease-[var(--ease-out)]",
+                  "focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/20"
+                )}
+              >
+                {CUSTOMER_SORT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div className="customers-section">
@@ -289,16 +278,15 @@ export function CustomersView() {
                   No customers match
                 </p>
                 <p className="mt-2 text-sm text-muted">
-                  {query.trim() || favoritesOnly || statusFilter !== "all"
+                  {query.trim() || statusFilter !== "all"
                     ? "Try another search term or clear filters."
                     : "No customers are available."}
                 </p>
-                {query.trim() || favoritesOnly || statusFilter !== "all" ? (
+                {query.trim() || statusFilter !== "all" ? (
                   <button
                     type="button"
                     onClick={() => {
                       setQuery("");
-                      setFavoritesOnly(false);
                       setStatusFilter("all");
                     }}
                     className="mt-4 text-sm font-medium text-accent underline-offset-4 hover:underline"
@@ -309,9 +297,6 @@ export function CustomersView() {
               </div>
             ) : (
               <>
-                <p className="mb-3 text-xs text-muted">
-                  Showing {visible.length} of {data.totalCount} customers
-                </p>
                 <div className="hidden md:block">
                   <CustomersDesktopTable items={visible} />
                 </div>

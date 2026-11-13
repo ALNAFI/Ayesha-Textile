@@ -66,8 +66,6 @@ export function FilesMobileCards({ items }: FilesMobileCardsProps) {
                     >
                       {item.kind === "customer" ? "Customer" : "Other"}
                     </span>
-                    <span>{item.location || "—"}</span>
-                    <span>·</span>
                     <span>{item.lastModified}</span>
                   </div>
                 </div>

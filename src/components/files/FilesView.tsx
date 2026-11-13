@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { FilesDesktopTable } from "@/components/files/FilesDesktopTable";
 import { FilesMobileCards } from "@/components/files/FilesMobileCards";
+import { RubberSegment } from "@/components/ui/rubber-segment";
 import { matchesFileSearch } from "@/lib/files/search";
 import { FILE_SORT_OPTIONS, sortFileItems } from "@/lib/files/sort";
 import type {
@@ -20,6 +21,12 @@ import type {
 } from "@/lib/files/types";
 import { formatRefreshTime } from "@/lib/dashboard/format";
 import { cn } from "@/lib/utils";
+
+const MOBILE_FILE_FILTERS: Array<{ id: FileListFilter; label: string }> = [
+  { id: "all", label: "All" },
+  { id: "customer", label: "Customers" },
+  { id: "other", label: "Other" },
+];
 
 type FilesViewProps = {
   initialData: FileListSnapshot;
@@ -67,20 +74,32 @@ export function FilesView({ initialData }: FilesViewProps) {
     });
   }
 
-  const filters: Array<{
-    id: FileListFilter;
-    label: string;
-    count: number;
-    icon: typeof FileSpreadsheet;
-  }> = [
-    { id: "all", label: "All Files", count: counts.all, icon: FileSpreadsheet },
-    { id: "customer", label: "Customers", count: counts.customer, icon: Users },
-    { id: "other", label: "Other Files", count: counts.other, icon: FileSpreadsheet },
-  ];
+  const filesAvailableLabel = data.available
+    ? `${data.totalCount} Excel file${data.totalCount === 1 ? "" : "s"} available`
+    : "Drive files unavailable";
+
+  const sortSelect = (
+    <select
+      value={sort}
+      aria-label="Sort files"
+      onChange={(event) => setSort(event.target.value as FileListSort)}
+      className={cn(
+        "h-9 w-auto shrink-0 rounded-[var(--radius-md)] border border-border bg-surface px-2.5 text-sm text-foreground shadow-[var(--shadow-soft)] sm:h-10 sm:min-w-44 sm:px-3",
+        "transition-[border-color,box-shadow] duration-[var(--motion-fast)] ease-[var(--ease-out)]",
+        "focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/20"
+      )}
+    >
+      {FILE_SORT_OPTIONS.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  );
 
   return (
     <div className="files-stagger space-y-6">
-      <header className="files-section flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <header className="files-section hidden flex-col gap-4 md:flex lg:flex-row lg:items-end lg:justify-between">
         <div>
           <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
             All Files
@@ -89,9 +108,7 @@ export function FilesView({ initialData }: FilesViewProps) {
             Browse and manage your Excel files
           </p>
           <p className="mt-3 text-sm text-muted">
-            {data.available
-              ? `${data.totalCount} Excel file${data.totalCount === 1 ? "" : "s"} available`
-              : "Drive files unavailable"}
+            {filesAvailableLabel}
             {data.refreshedAtIso
               ? ` · Updated ${formatRefreshTime(data.refreshedAtIso)}`
               : null}
@@ -152,13 +169,64 @@ export function FilesView({ initialData }: FilesViewProps) {
               ) : null}
             </div>
 
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="md:hidden">
+              <div className="w-full overflow-hidden rounded-[9px] border border-border bg-surface shadow-[var(--shadow-soft)]">
+                <RubberSegment
+                  aria-label="File filters"
+                  items={MOBILE_FILE_FILTERS.map((item) => ({
+                    value: item.id,
+                    label: (
+                      <span className="inline-flex items-center gap-1">
+                        <span>{item.label}</span>
+                        <span className="text-[0.65rem] opacity-70">
+                          {String(counts[item.id]).padStart(2, "0")}
+                        </span>
+                      </span>
+                    ),
+                  }))}
+                  value={filter}
+                  onChange={(next) => setFilter(next as FileListFilter)}
+                  trackColor="transparent"
+                  thumbColor="var(--accent-soft)"
+                  textColor="var(--muted)"
+                  activeTextColor="var(--foreground)"
+                  size="sm"
+                  radius={7}
+                  inset={2}
+                  equalSlots={false}
+                  columns="25% 40% 35%"
+                />
+              </div>
+            </div>
+
+            <div className="hidden flex-col gap-3 md:flex lg:flex-row lg:items-center lg:justify-between">
               <div
                 role="tablist"
                 aria-label="File filters"
                 className="inline-flex w-full flex-wrap gap-1 rounded-[var(--radius-md)] border border-border bg-surface p-1 shadow-[var(--shadow-soft)] sm:w-auto"
               >
-                {filters.map((item) => {
+                {(
+                  [
+                    {
+                      id: "all" as const,
+                      label: "All Files",
+                      count: counts.all,
+                      icon: FileSpreadsheet,
+                    },
+                    {
+                      id: "customer" as const,
+                      label: "Customers",
+                      count: counts.customer,
+                      icon: Users,
+                    },
+                    {
+                      id: "other" as const,
+                      label: "Other Files",
+                      count: counts.other,
+                      icon: FileSpreadsheet,
+                    },
+                  ] as const
+                ).map((item) => {
                   const active = filter === item.id;
                   const Icon = item.icon;
                   return (
@@ -195,24 +263,15 @@ export function FilesView({ initialData }: FilesViewProps) {
 
               <label className="flex items-center gap-2 text-sm text-muted">
                 <span className="shrink-0">Sort</span>
-                <select
-                  value={sort}
-                  onChange={(event) =>
-                    setSort(event.target.value as FileListSort)
-                  }
-                  className={cn(
-                    "h-10 min-w-44 rounded-[var(--radius-md)] border border-border bg-surface px-3 text-sm text-foreground shadow-[var(--shadow-soft)]",
-                    "transition-[border-color,box-shadow] duration-[var(--motion-fast)] ease-[var(--ease-out)]",
-                    "focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/20"
-                  )}
-                >
-                  {FILE_SORT_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                {sortSelect}
               </label>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 md:hidden">
+              <p className="min-w-0 truncate text-xs text-muted">
+                {filesAvailableLabel}
+              </p>
+              {sortSelect}
             </div>
           </div>
 

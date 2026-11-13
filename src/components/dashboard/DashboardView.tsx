@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect } from "react";
 import { LoaderCircle, RefreshCw } from "lucide-react";
 import { DashboardSkeleton } from "@/components/dashboard/DashboardSkeleton";
 import { FavoriteCustomers } from "@/components/dashboard/FavoriteCustomers";
+import { IssuesBox } from "@/components/dashboard/IssuesBox";
 import { RecentFiles } from "@/components/dashboard/RecentFiles";
 import { RecentSearches } from "@/components/dashboard/RecentSearches";
 import { StatCards } from "@/components/dashboard/StatCards";
-import { GlobalSearch } from "@/components/search/GlobalSearch";
 import { SyncStatusBanner } from "@/components/shared/SyncStatusBanner";
 import { useFavorites } from "@/hooks/use-favorites";
 import { useRecentOpens } from "@/hooks/use-recent-opens";
@@ -21,7 +21,6 @@ export function DashboardView() {
     "dashboard",
     "/api/dashboard"
   );
-  const [searchOpen, setSearchOpen] = useState(false);
   const syncing = status === "syncing" || status === "loading";
   const { favorites, ready: favoritesReady, pruneMissing: pruneFavorites } =
     useFavorites();
@@ -34,11 +33,6 @@ export function DashboardView() {
     pruneFavorites(validIds);
     pruneRecent(validIds);
   }, [data, pruneFavorites, pruneRecent]);
-
-  const shortcutLabel = useMemo(() => {
-    if (typeof navigator === "undefined") return "Ctrl K";
-    return /Mac|iPhone|iPad|iPod/.test(navigator.platform) ? "⌘K" : "Ctrl K";
-  }, []);
 
   if (!data) {
     return status === "error" ? (
@@ -60,7 +54,7 @@ export function DashboardView() {
   return (
     <div className="dash-stagger w-full min-w-0 max-w-full space-y-8">
       <SyncStatusBanner status={status} />
-      <header className="dash-section flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <header className="dash-section hidden flex-col gap-4 md:flex sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
             Overview
@@ -93,46 +87,23 @@ export function DashboardView() {
         </div>
       </header>
 
-      {!data.available ? (
-        <div className="dash-section rounded-[var(--radius-lg)] border border-border bg-surface px-5 py-4 text-sm text-muted shadow-[var(--shadow-soft)]">
-          {data.message}
-        </div>
-      ) : data.stats.outstandingIncomplete ? (
-        <div className="dash-section rounded-[var(--radius-lg)] border border-border bg-surface px-5 py-4 text-sm text-muted shadow-[var(--shadow-soft)]">
-          {data.message}
-        </div>
-      ) : null}
-
       <div className="dash-section">
         <StatCards stats={data.stats} available={data.available} />
       </div>
 
-      <div className="dash-section">
-        <div className="mb-2 flex items-center justify-between gap-3">
-          <p className="text-sm font-medium text-foreground">Quick Search</p>
-          <span className="rounded border border-border bg-surface px-1.5 py-0.5 font-mono text-[0.65rem] text-muted-foreground">
-            {shortcutLabel}
-          </span>
+      <div className="dash-section grid w-full min-w-0 max-w-full grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="order-3 min-w-0 lg:order-1">
+          <RecentFiles files={data.recentFiles} available={data.available} />
         </div>
-        <GlobalSearch
-          mode="inline"
-          open={searchOpen}
-          onOpenChange={setSearchOpen}
-          items={data.searchItems}
-          unavailableMessage={
-            data.available
-              ? null
-              : "Search will connect when Drive data is available."
-          }
-          className="shadow-[var(--shadow-soft)]"
-        />
+        <div className="order-1 min-w-0 lg:order-2">
+          <RecentSearches items={recentOpens} ready={recentReady} />
+        </div>
+        <div className="order-2 min-w-0 lg:order-3">
+          <FavoriteCustomers favorites={favorites} ready={favoritesReady} />
+        </div>
       </div>
 
-      <div className="dash-section grid w-full min-w-0 max-w-full grid-cols-1 gap-4 lg:grid-cols-3">
-        <RecentFiles files={data.recentFiles} available={data.available} />
-        <RecentSearches items={recentOpens} ready={recentReady} />
-        <FavoriteCustomers favorites={favorites} ready={favoritesReady} />
-      </div>
+      <IssuesBox data={data} syncStatus={status} />
     </div>
   );
 }

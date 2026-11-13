@@ -2,7 +2,6 @@
 
 import {
   createContext,
-  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -10,7 +9,6 @@ import {
   type ReactNode,
 } from "react";
 import type { DashboardFileItem, DashboardSnapshot } from "@/lib/dashboard/types";
-import { GlobalSearch } from "@/components/search/GlobalSearch";
 import { useSyncedData } from "@/hooks/use-synced-data";
 
 type SearchContextValue = {
@@ -39,6 +37,17 @@ export function SearchProvider({ children }: { children: ReactNode }) {
   );
   const loading = status === "loading" && data == null;
 
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setOpen(true);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   const value = useMemo(
     () => ({
       open,
@@ -51,61 +60,6 @@ export function SearchProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <SearchContext.Provider value={value}>
-      {children}
-      <SearchDialog
-        open={open}
-        setOpen={setOpen}
-        items={data?.searchItems ?? []}
-        snapshot={data}
-        loading={loading}
-      />
-    </SearchContext.Provider>
-  );
-}
-
-function SearchDialog({
-  open,
-  setOpen,
-  items,
-  snapshot,
-  loading,
-}: {
-  open: boolean;
-  setOpen: (open: boolean) => void;
-  items: DashboardFileItem[];
-  snapshot: DashboardSnapshot | null;
-  loading: boolean;
-}) {
-  const onOpenChange = useCallback((next: boolean) => setOpen(next), [setOpen]);
-
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setOpen(true);
-      }
-      if (event.key === "Escape") {
-        setOpen(false);
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [setOpen]);
-
-  return (
-    <GlobalSearch
-      mode="dialog"
-      open={open}
-      onOpenChange={onOpenChange}
-      items={items}
-      unavailableMessage={
-        snapshot && !snapshot.available
-          ? snapshot.message
-          : loading
-            ? "Loading search index…"
-            : null
-      }
-    />
+    <SearchContext.Provider value={value}>{children}</SearchContext.Provider>
   );
 }

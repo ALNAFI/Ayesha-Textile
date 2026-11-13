@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useSyncExternalStore } from "react";
-import { Moon, Sun } from "lucide-react";
+import { Monitor, Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { LogoutButton } from "@/components/auth/LogoutButton";
 import { formatRefreshTime } from "@/lib/dashboard/format";
@@ -32,7 +32,11 @@ export function SettingsView({
     () => true,
     () => false
   );
-  const activeTheme = mounted && theme === "dark" ? "dark" : mounted ? "light" : null;
+  const activeTheme = !mounted
+    ? null
+    : theme === "dark" || theme === "light" || theme === "system"
+      ? theme
+      : "system";
   const [health, setHealth] = useState(initialHealth);
   const [syncedLabel, setSyncedLabel] = useState(initialSyncedLabel);
   const [checking, setChecking] = useState(false);
@@ -125,15 +129,18 @@ export function SettingsView({
       <section className="settings-section space-y-4">
         <div>
           <h3 className="text-base font-semibold text-foreground">Appearance</h3>
-          <p className="mt-1 text-sm text-muted">Choose a light or dark theme.</p>
+          <p className="mt-1 text-sm text-muted">
+            Choose light, dark, or follow your system setting.
+          </p>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-3">
           {(
             [
-              ["light", "Light", Sun],
-              ["dark", "Dark", Moon],
+              ["system", "System", Monitor, "Match device"],
+              ["light", "Light", Sun, "Always light"],
+              ["dark", "Dark", Moon, "Always dark"],
             ] as const
-          ).map(([value, label, Icon]) => {
+          ).map(([value, label, Icon, hint]) => {
             const selected = activeTheme === value;
             return (
               <button
@@ -158,7 +165,7 @@ export function SettingsView({
                     {label}
                   </span>
                   <span className="mt-0.5 block text-xs text-muted">
-                    {selected ? "Active" : "Switch theme"}
+                    {selected ? "Active" : hint}
                   </span>
                 </span>
                 <span

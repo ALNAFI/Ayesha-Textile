@@ -1,23 +1,15 @@
 import type { SyncStatus } from "@/hooks/use-synced-data";
 
 export function SyncStatusBanner({ status }: { status: SyncStatus }) {
-  if (
-    status !== "syncing" &&
-    status !== "offline" &&
-    status !== "partial" &&
-    status !== "uptodate"
-  ) {
+  // Skip brief syncing / uptodate flashes on page navigation.
+  if (status !== "offline" && status !== "partial") {
     return null;
   }
 
   const label =
-    status === "syncing"
-      ? "Syncing..."
-      : status === "uptodate"
-        ? "Up to date"
-        : status === "partial"
-          ? "Some files could not be updated. Will retry."
-          : "Offline, showing saved data";
+    status === "partial"
+      ? "Some files could not be updated. Will retry."
+      : "Offline, showing saved data";
 
   return (
     <p

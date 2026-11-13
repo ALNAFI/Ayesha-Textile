@@ -28,8 +28,10 @@
   --header-height: 3.75rem;
   --sidebar-width: 16.5rem;
   --sidebar-width-collapsed: 4.5rem;
-  --mobile-nav-height: 4.25rem;
-  --font-sans: var(--font-geist-sans);
+  /* Pill height + bottom float gap (content padding still adds safe-area). */
+  --mobile-nav-height: 4.5rem;
+  --mobile-nav-offset: 0.875rem;
+  --font-sans: var(--font-geist-sans), var(--font-noto-bengali);
   --font-mono: var(--font-geist-mono);
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-in-out: cubic-bezier(0.45, 0, 0.55, 1);
@@ -93,7 +95,8 @@ body {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-geist-sans), var(--font-noto-bengali), ui-sans-serif,
+    system-ui, sans-serif;
 }
 
 *:focus-visible {

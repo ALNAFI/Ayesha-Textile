@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Clock3, FileSpreadsheet, Users } from "lucide-react";
+import { formatRefreshTime, formatTimeAgo } from "@/lib/dashboard/format";
 import type { RecentOpenItem } from "@/lib/dashboard/types";
 import { cn } from "@/lib/utils";
 
@@ -41,6 +42,10 @@ export function RecentSearches({ items, ready }: RecentSearchesProps) {
         <ul className="mt-5 w-full min-w-0 space-y-1">
           {items.slice(0, 5).map((item) => {
             const Icon = item.kind === "customer" ? Users : FileSpreadsheet;
+            const when = formatTimeAgo(item.openedAt);
+            const exact = formatRefreshTime(
+              new Date(item.openedAt).toISOString()
+            );
             return (
               <li key={`${item.id}-${item.openedAt}`} className="min-w-0">
                 <Link
@@ -63,6 +68,12 @@ export function RecentSearches({ items, ready }: RecentSearchesProps) {
                         {item.subtitle}
                       </span>
                     ) : null}
+                  </span>
+                  <span
+                    className="w-[5.75rem] shrink-0 text-right text-xs text-muted"
+                    title={exact}
+                  >
+                    {when}
                   </span>
                 </Link>
               </li>

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ArrowUpRight, FileSpreadsheet, Users } from "lucide-react";
+import { formatDaysFromToday, formatRefreshTime } from "@/lib/dashboard/format";
 import type { DashboardFileItem } from "@/lib/dashboard/types";
 import { cn } from "@/lib/utils";
 
@@ -47,6 +48,12 @@ export function RecentFiles({ files, available }: RecentFilesProps) {
               file.kind === "customer"
                 ? `${file.location || "Customer"} · Due file`
                 : "Other file";
+            const when = file.modifiedAt
+              ? formatDaysFromToday(file.modifiedAt)
+              : "—";
+            const exact = file.modifiedAt
+              ? formatRefreshTime(new Date(file.modifiedAt).toISOString())
+              : file.lastModified;
             return (
               <li key={file.id} className="min-w-0">
                 <Link
@@ -68,13 +75,19 @@ export function RecentFiles({ files, available }: RecentFilesProps) {
                       <span className="min-w-0 flex-1 truncate text-xs text-muted">
                         {subtitle}
                       </span>
-                      <span className="shrink-0 whitespace-nowrap text-[11px] text-muted min-[481px]:hidden">
-                        {file.lastModified}
+                      <span
+                        className="shrink-0 whitespace-nowrap text-[11px] text-muted min-[481px]:hidden"
+                        title={exact}
+                      >
+                        {when}
                       </span>
                     </span>
                   </span>
-                  <span className="hidden shrink-0 whitespace-nowrap text-xs text-muted min-[481px]:block">
-                    {file.lastModified}
+                  <span
+                    className="hidden w-[5.75rem] shrink-0 text-right text-xs text-muted min-[481px]:block"
+                    title={exact}
+                  >
+                    {when}
                   </span>
                 </Link>
               </li>

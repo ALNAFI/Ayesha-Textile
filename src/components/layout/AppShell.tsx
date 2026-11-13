@@ -7,6 +7,7 @@ import { MobileNav } from "@/components/layout/MobileNav";
 import { PageTransition } from "@/components/layout/PageTransition";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { SearchProvider } from "@/components/search/SearchProvider";
+import { warmSyncedCache } from "@/hooks/use-synced-data";
 import { cn } from "@/lib/utils";
 
 const SIDEBAR_STORAGE_KEY = "ayesha-sidebar-collapsed";
@@ -24,6 +25,10 @@ export function AppShell({ children }: AppShellProps) {
     if (stored === "true") {
       setCollapsed(true);
     }
+  }, []);
+
+  useEffect(() => {
+    warmSyncedCache();
   }, []);
 
   function toggleCollapsed() {
@@ -52,7 +57,7 @@ export function AppShell({ children }: AppShellProps) {
           <main
             className={cn(
               "box-border w-full min-w-0 max-w-full flex-1 px-3 py-6 sm:px-6",
-              "pb-[calc(var(--mobile-nav-height)+env(safe-area-inset-bottom)+1.25rem)] md:pb-8 print:p-0"
+              "pb-[calc(var(--mobile-nav-height)+var(--mobile-nav-offset)+env(safe-area-inset-bottom,0px)+1.25rem)] md:pb-8 print:p-0"
             )}
           >
             <div className="mx-auto box-border w-full min-w-0 max-w-6xl print:max-w-none">

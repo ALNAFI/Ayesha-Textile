@@ -1,7 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { cacheGet, cachePeek, cacheSet } from "@/lib/client-cache";
+import {
+  cacheGet,
+  cachePeek,
+  cacheSet,
+  hydrateClientCache,
+} from "@/lib/client-cache";
 
 export type SyncStatus =
   | "loading"
@@ -234,13 +239,21 @@ function startSync(force: boolean): Promise<SyncResult> {
   return job;
 }
 
+/** Warm IndexedDB/localStorage and refresh in the background once per session. */
+export function warmSyncedCache(): void {
+  if (typeof window === "undefined") return;
+  void hydrateClientCache().then(() => startSync(false));
+}
+
 export function useSyncedData<T>(key: string, path: string) {
   void path;
   const seeded = asCurrent<T>(cachePeek<unknown>(key));
   const [data, setData] = useState<T | null>(seeded?.data ?? null);
-  const [status, setStatus] = useState<SyncStatus>(
-    seeded?.sig === "" ? "partial" : seeded ? "syncing" : "loading"
-  );
+  const [status, setStatus] = useState<SyncStatus>(() => {
+    if (!seeded) return "loading";
+    if (seeded.sig === "") return "partial";
+    return "fresh";
+  });
   const [refreshBusy, setRefreshBusy] = useState(refreshLocked);
   const mounted = useRef(true);
 
@@ -274,16 +287,21 @@ export function useSyncedData<T>(key: string, path: string) {
   }, [key]);
 
   const run = useCallback(async (force = false) => {
+    await hydrateClientCache();
     const cached = asCurrent<T>(await cacheGet<unknown>(key));
     if (!mounted.current) return;
-    if (cached) setData(cached.data);
+    if (cached) {
+      setData(cached.data);
+      // Keep UI on cached data; avoid a loading flash while background sync runs.
+      setStatus(cached.sig === "" ? "partial" : "fresh");
+    }
     if (!force && partialCoolingDown(await readLastPartialAt())) {
       if (!mounted.current) return;
       setStatus(cached ? "partial" : "error");
       return;
     }
     if (!mounted.current) return;
-    if (cached) setStatus("syncing");
+    if (!cached) setStatus("loading");
     const result = await startSync(force);
     if (!mounted.current) return;
     await applyFromCache(result);

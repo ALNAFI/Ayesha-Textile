@@ -7,7 +7,11 @@ import { cacheClear } from "@/lib/client-cache";
 import { clearCachedPages } from "@/lib/page-cache";
 import { cn } from "@/lib/utils";
 
-export function LogoutButton() {
+type LogoutButtonProps = {
+  className?: string;
+};
+
+export function LogoutButton({ className }: LogoutButtonProps) {
   const [pending, startTransition] = useTransition();
 
   return (
@@ -27,7 +31,8 @@ export function LogoutButton() {
         "inline-flex h-10 items-center justify-center gap-2 rounded-[var(--radius-md)] border border-border bg-surface px-4 text-sm font-medium text-foreground",
         "transition-[background-color,transform,opacity] duration-[var(--motion-fast)] ease-[var(--ease-out)]",
         "hover:bg-surface-muted active:scale-[0.98]",
-        "disabled:cursor-not-allowed disabled:opacity-70"
+        "disabled:cursor-not-allowed disabled:opacity-70",
+        className
       )}
     >
       {pending ? (

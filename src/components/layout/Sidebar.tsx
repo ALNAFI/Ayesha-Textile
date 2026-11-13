@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { LogoGlyph } from "@/components/shared/BrandMark";
-import { mainNav } from "@/config/navigation";
+import { mainNav, type NavItem } from "@/config/navigation";
 import { cn } from "@/lib/utils";
 
 type SidebarProps = {
@@ -14,6 +14,57 @@ type SidebarProps = {
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
+  const menuItems = mainNav.filter((item) => item.href !== "/settings");
+  const settingsItem = mainNav.find((item) => item.href === "/settings");
+
+  function renderNavLink(item: NavItem) {
+    const Icon = item.icon;
+    const active =
+      item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        title={item.title}
+        aria-current={active ? "page" : undefined}
+        className={cn(
+          "group relative flex items-center rounded-[var(--radius-md)] text-sm font-medium",
+          "transition-[background-color,color,padding,gap] duration-[var(--motion-base)] ease-[var(--ease-out)]",
+          collapsed ? "justify-center gap-0 px-0 py-2.5" : "gap-3 px-3 py-2.5",
+          active
+            ? "bg-sidebar-active text-foreground"
+            : "text-muted hover:bg-surface-muted hover:text-foreground"
+        )}
+      >
+        <span
+          aria-hidden
+          className={cn(
+            "absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-accent",
+            "transition-opacity duration-[var(--motion-fast)] ease-[var(--ease-out)]",
+            active ? "opacity-100" : "opacity-0 group-hover:opacity-40"
+          )}
+        />
+        <Icon
+          className={cn(
+            "h-[1.125rem] w-[1.125rem] shrink-0 transition-colors duration-[var(--motion-fast)] ease-[var(--ease-out)]",
+            active ? "text-accent" : "text-muted group-hover:text-foreground"
+          )}
+        />
+        <span
+          className={cn(
+            "sidebar-label overflow-hidden whitespace-nowrap",
+            "transition-[opacity,max-width,transform] duration-[var(--motion-base)] ease-[var(--ease-out)]",
+            collapsed
+              ? "max-w-0 translate-x-1 opacity-0"
+              : "max-w-[11rem] translate-x-0 opacity-100"
+          )}
+        >
+          {item.title}
+        </span>
+      </Link>
+    );
+  }
 
   return (
     <aside
@@ -99,60 +150,15 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         )}
       </div>
 
-      <nav className="flex-1 space-y-1 overflow-x-hidden overflow-y-auto p-3">
-        {mainNav.map((item) => {
-          const Icon = item.icon;
-          const active =
-            item.href === "/"
-              ? pathname === "/"
-              : pathname.startsWith(item.href);
-
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              title={item.title}
-              aria-current={active ? "page" : undefined}
-              className={cn(
-                "group relative flex items-center rounded-[var(--radius-md)] text-sm font-medium",
-                "transition-[background-color,color,padding,gap] duration-[var(--motion-base)] ease-[var(--ease-out)]",
-                collapsed ? "justify-center gap-0 px-0 py-2.5" : "gap-3 px-3 py-2.5",
-                active
-                  ? "bg-sidebar-active text-foreground"
-                  : "text-muted hover:bg-surface-muted hover:text-foreground"
-              )}
-            >
-              <span
-                aria-hidden
-                className={cn(
-                  "absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-accent",
-                  "transition-opacity duration-[var(--motion-fast)] ease-[var(--ease-out)]",
-                  active ? "opacity-100" : "opacity-0 group-hover:opacity-40"
-                )}
-              />
-              <Icon
-                className={cn(
-                  "h-[1.125rem] w-[1.125rem] shrink-0 transition-colors duration-[var(--motion-fast)] ease-[var(--ease-out)]",
-                  active
-                    ? "text-accent"
-                    : "text-muted group-hover:text-foreground"
-                )}
-              />
-              <span
-                className={cn(
-                  "sidebar-label overflow-hidden whitespace-nowrap",
-                  "transition-[opacity,max-width,transform] duration-[var(--motion-base)] ease-[var(--ease-out)]",
-                  collapsed
-                    ? "max-w-0 translate-x-1 opacity-0"
-                    : "max-w-[11rem] translate-x-0 opacity-100"
-                )}
-              >
-                {item.title}
-              </span>
-            </Link>
-          );
-        })}
+      <nav className="min-h-0 flex-1 space-y-1 overflow-x-hidden overflow-y-auto p-3">
+        {menuItems.map((item) => renderNavLink(item))}
       </nav>
+
+      {settingsItem ? (
+        <div className="mt-auto shrink-0 border-t border-border p-3 pb-4">
+          {renderNavLink(settingsItem)}
+        </div>
+      ) : null}
     </aside>
   );
 }

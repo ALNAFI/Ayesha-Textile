@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Search, X } from "lucide-react";
+import { ChevronDown, Search, X } from "lucide-react";
 import { formatBDT } from "@/lib/dashboard/format";
 import type { CustomerTransaction } from "@/lib/customers/detail-types";
 import {
@@ -63,46 +63,72 @@ export function CustomerTransactions({ transactions }: CustomerTransactionsProps
           ) : null}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-2 text-sm text-muted">
-            <span>From</span>
+        <div className="grid w-full grid-cols-3 gap-2 md:flex md:w-auto md:flex-wrap md:items-end">
+          <label className="flex min-w-0 flex-col gap-1 text-xs text-muted md:flex-row md:items-center md:gap-2 md:text-sm">
+            <span className="shrink-0">From</span>
             <input
               type="date"
               value={from}
               onChange={(event) => setFrom(event.target.value)}
-              className="h-10 rounded-[var(--radius-md)] border border-border bg-surface px-3 text-sm text-foreground"
+              className="h-10 w-full min-w-0 rounded-[var(--radius-md)] border border-border bg-surface px-2 text-sm text-foreground md:px-3"
             />
           </label>
-          <label className="flex items-center gap-2 text-sm text-muted">
-            <span>To</span>
+          <label className="flex min-w-0 flex-col gap-1 text-xs text-muted md:flex-row md:items-center md:gap-2 md:text-sm">
+            <span className="shrink-0">To</span>
             <input
               type="date"
               value={to}
               onChange={(event) => setTo(event.target.value)}
-              className="h-10 rounded-[var(--radius-md)] border border-border bg-surface px-3 text-sm text-foreground"
+              className="h-10 w-full min-w-0 rounded-[var(--radius-md)] border border-border bg-surface px-2 text-sm text-foreground md:px-3"
             />
           </label>
-          <label className="flex items-center gap-2 text-sm text-muted">
-            <span>Sort</span>
-            <select
-              value={sort}
-              onChange={(event) =>
-                setSort(event.target.value as "ledger" | "newest" | "oldest")
-              }
-              className="h-10 rounded-[var(--radius-md)] border border-border bg-surface px-3 text-sm text-foreground"
+          <div className="flex min-w-0 flex-col gap-1">
+            <span className="invisible text-xs md:hidden" aria-hidden>
+              Reset
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setFrom("");
+                setTo("");
+              }}
+              disabled={!from && !to}
+              className={cn(
+                "inline-flex h-10 w-full items-center justify-center rounded-[var(--radius-md)] border border-border bg-surface px-2 text-sm font-medium text-foreground md:w-auto md:px-3.5",
+                "hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-50"
+              )}
             >
-              <option value="ledger">Ledger order</option>
-              <option value="newest">Newest first</option>
-              <option value="oldest">Oldest first</option>
-            </select>
-          </label>
+              Reset
+            </button>
+          </div>
         </div>
       </div>
 
-      <p className="text-xs text-muted">
-        {visible.length} of {transactions.length}{" "}
-        {transactions.length === 1 ? "transaction" : "transactions"}
-      </p>
+      <div className="flex items-center justify-between gap-3">
+        <p className="min-w-0 truncate text-xs text-muted">
+          {visible.length} of {transactions.length}{" "}
+          {transactions.length === 1 ? "transaction" : "transactions"}
+        </p>
+        <label className="relative inline-flex shrink-0 items-center text-sm text-foreground">
+          <span className="sr-only">Sort transactions</span>
+          <select
+            value={sort}
+            aria-label="Sort transactions"
+            onChange={(event) =>
+              setSort(event.target.value as "ledger" | "newest" | "oldest")
+            }
+            className="field-sizing-content h-9 appearance-none rounded-[var(--radius-md)] border border-border bg-surface py-0 pl-2.5 pr-7 text-sm text-foreground"
+          >
+            <option value="ledger">Ledger order</option>
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+          </select>
+          <ChevronDown
+            className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted"
+            aria-hidden
+          />
+        </label>
+      </div>
 
       {visible.length === 0 ? (
         <div className="rounded-[var(--radius-lg)] border border-border bg-surface px-5 py-10 text-center">

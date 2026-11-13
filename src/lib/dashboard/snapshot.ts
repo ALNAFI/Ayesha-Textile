@@ -126,7 +126,7 @@ export function buildDashboardSnapshot(loaded: DriveWorkspace): DashboardSnapsho
     status: "ready",
     message:
       incompleteCustomerCount > 0
-        ? `Outstanding excludes ${incompleteCustomerCount} customer file${incompleteCustomerCount === 1 ? "" : "s"} without a valid parsed balance.`
+        ? `Due excludes ${incompleteCustomerCount} customer file${incompleteCustomerCount === 1 ? "" : "s"} without a valid parsed balance.`
         : loaded.error
           ? loaded.error
           : "Live Google Drive data.",

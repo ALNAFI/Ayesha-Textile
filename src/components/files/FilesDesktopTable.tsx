@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowUpRight, FileSpreadsheet, Users } from "lucide-react";
+import { FileSpreadsheet, Users } from "lucide-react";
 import type { FileListItem } from "@/lib/files/types";
 import { recordRecentOpen } from "@/hooks/use-recent-opens";
 import { cn } from "@/lib/utils";
@@ -31,14 +30,17 @@ export function FilesDesktopTable({ items }: FilesDesktopTableProps) {
 
   return (
     <div className="overflow-hidden rounded-[var(--radius-lg)] border border-border bg-surface shadow-[var(--shadow-soft)]">
-      <table className="w-full min-w-[720px] border-collapse text-left">
+      <table className="w-full min-w-[640px] table-fixed border-collapse text-left">
+        <colgroup>
+          <col className="w-[58%]" />
+          <col className="w-[18%]" />
+          <col className="w-[24%]" />
+        </colgroup>
         <thead className="border-b border-border bg-background/70">
           <tr className="text-xs font-medium text-muted">
             <th className="px-5 py-3.5 font-medium">File Name</th>
             <th className="px-4 py-3.5 font-medium">Type</th>
-            <th className="px-4 py-3.5 font-medium">Location</th>
             <th className="px-4 py-3.5 font-medium">Last Updated</th>
-            <th className="px-5 py-3.5 text-right font-medium">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -77,11 +79,6 @@ export function FilesDesktopTable({ items }: FilesDesktopTableProps) {
                           </span>
                         ) : null}
                       </div>
-                      {item.kind === "customer" && item.customerName ? (
-                        <p className="mt-0.5 truncate text-xs text-muted">
-                          {item.customerName}
-                        </p>
-                      ) : null}
                     </div>
                   </div>
                 </td>
@@ -97,40 +94,8 @@ export function FilesDesktopTable({ items }: FilesDesktopTableProps) {
                     {item.kind === "customer" ? "Customer" : "Other"}
                   </span>
                 </td>
-                <td className="px-4 py-4 text-sm text-foreground">
-                  {item.location || "—"}
-                </td>
-                <td className="px-4 py-4 text-sm text-muted">
+                <td className="truncate px-4 py-4 text-sm text-muted">
                   {item.lastModified}
-                </td>
-                <td className="px-5 py-4 text-right">
-                  <Link
-                    href={item.href}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      recordRecentOpen({
-                        id: item.id,
-                        kind: item.kind,
-                        title:
-                          item.kind === "customer"
-                            ? item.customerName || item.fileName
-                            : item.fileName,
-                        subtitle:
-                          item.kind === "customer"
-                            ? item.location
-                            : "Other Excel file",
-                        href: item.href,
-                      });
-                    }}
-                    className={cn(
-                      "inline-flex h-8 items-center gap-1 rounded-[var(--radius-sm)] px-2.5 text-xs font-medium text-accent",
-                      "transition-[background-color,transform] duration-[var(--motion-fast)] ease-[var(--ease-out)]",
-                      "hover:bg-accent-soft active:scale-95"
-                    )}
-                  >
-                    Open
-                    <ArrowUpRight className="h-3.5 w-3.5" />
-                  </Link>
                 </td>
               </tr>
             );
