@@ -27,6 +27,7 @@ function isProtectedPath(pathname: string) {
     pathname === "/" ||
     pathname.startsWith("/files") ||
     pathname.startsWith("/customers") ||
+    pathname.startsWith("/data") ||
     pathname.startsWith("/favorites") ||
     pathname.startsWith("/settings") ||
     pathname.startsWith("/api/dashboard") ||

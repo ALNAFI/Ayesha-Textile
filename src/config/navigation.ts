@@ -1,6 +1,7 @@
 import {
   FolderOpen,
   LayoutDashboard,
+  PenLine,
   Settings,
   Star,
   Users,
@@ -31,6 +32,12 @@ export const mainNav: NavItem[] = [
     title: "Customers",
     href: "/customers",
     icon: Users,
+    mobile: true,
+  },
+  {
+    title: "Data",
+    href: "/data",
+    icon: PenLine,
     mobile: true,
   },
   {
