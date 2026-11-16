@@ -20,7 +20,7 @@
  * Not intercepted: /api/*, /logout, RSC fetches, non-GET, and cross-origin requests.
  * Customer data stays in IndexedDB, not in these caches.
  */
-const CACHE_VERSION = "v4";
+const CACHE_VERSION = "d1794833482335";
 const STATIC_CACHE = `ayesha-static-${CACHE_VERSION}`;
 const PAGES_CACHE = `ayesha-pages-${CACHE_VERSION}`;
 const STATIC_CACHE_LIMIT = 150;
