@@ -14,14 +14,17 @@
  *   cached app page ("/" first), then the offline page.
  *   Redirects, 401/403/500, and /login are never stored.
  *
- * Not intercepted: /api/*, RSC fetches, non-GET, and cross-origin requests.
+ * On a new version, old caches are deleted and every open app window is
+ * reloaded once, so nobody keeps running an old page after a deploy.
+ *
+ * Not intercepted: /api/*, /logout, RSC fetches, non-GET, and cross-origin requests.
  * Customer data stays in IndexedDB, not in these caches.
  */
-const CACHE_VERSION = "v3";
+const CACHE_VERSION = "v4";
 const STATIC_CACHE = `ayesha-static-${CACHE_VERSION}`;
 const PAGES_CACHE = `ayesha-pages-${CACHE_VERSION}`;
 const STATIC_CACHE_LIMIT = 150;
-const NAV_TIMEOUT_MS = 3000;
+const NAV_TIMEOUT_MS = 6000;
 const NAV_RETRY_MS = 500;
 
 self.addEventListener("install", (event) => {
@@ -33,12 +36,22 @@ self.addEventListener("activate", (event) => {
     (async () => {
       const keep = new Set([STATIC_CACHE, PAGES_CACHE]);
       const keys = await caches.keys();
-      await Promise.all(
-        keys
-          .filter((key) => key.startsWith("ayesha-") && !keep.has(key))
-          .map((key) => caches.delete(key))
+      const stale = keys.filter(
+        (key) => key.startsWith("ayesha-") && !keep.has(key)
       );
+      await Promise.all(stale.map((key) => caches.delete(key)));
       await self.clients.claim();
+
+      // Upgrade (not first install): reload open windows so they leave the old
+      // page, whose scripts and server actions no longer exist after a deploy.
+      if (stale.length > 0) {
+        const windows = await self.clients.matchAll({ type: "window" });
+        await Promise.all(
+          windows.map((client) =>
+            client.navigate(client.url).catch(() => undefined)
+          )
+        );
+      }
     })()
   );
 });
@@ -70,6 +83,7 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api/")) return;
+  if (url.pathname === "/logout") return;
   if (isRscRequest(request, url)) return;
 
   if (url.pathname.startsWith("/_next/static/")) {

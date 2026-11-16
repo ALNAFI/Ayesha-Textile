@@ -28,13 +28,16 @@ import type {
   EntrySchema,
   EntryTailRow,
 } from "@/lib/data-entry/types";
+import {
+  applyOptimistic,
+  validateEntry,
+  type EntryOp,
+} from "@/lib/data-entry/optimistic";
 import { cn } from "@/lib/utils";
 
 type DataEntryViewProps = {
   fileId: string;
 };
-
-type Busy = "add" | "update" | "delete" | null;
 
 function todayInputValue() {
   const d = new Date();
@@ -69,11 +72,16 @@ export function DataEntryView({ fileId }: DataEntryViewProps) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [selectedRow, setSelectedRow] = useState<number | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const [busy, setBusy] = useState<Busy>(null);
+  const [pending, setPending] = useState(0);
+  const [saved, setSaved] = useState(false);
+  const [reloading, setReloading] = useState(false);
   const [notice, setNotice] = useState<
     { type: "ok" | "error"; text: string } | null
   >(null);
   const formRef = useRef<HTMLFormElement | null>(null);
+  const modifiedRef = useRef<string | null>(null);
+  const queueRef = useRef<EntryOp[]>([]);
+  const runningRef = useRef(false);
 
   const editing = selectedRow !== null;
   const selected: EntryTailRow | null = useMemo(
@@ -82,27 +90,32 @@ export function DataEntryView({ fileId }: DataEntryViewProps) {
     [schema, selectedRow]
   );
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
-    try {
-      const res = await fetch(`/api/data/${fileId}`, { cache: "no-store" });
-      const json = (await res.json()) as EntrySchema | EntryError;
-      if (!res.ok || !json.ok) {
-        setLoadError(json.ok ? "Could not open this file." : json.error);
+  const load = useCallback(
+    async (silent = false) => {
+      if (!silent) setLoading(true);
+      setLoadError(null);
+      try {
+        const res = await fetch(`/api/data/${fileId}`, { cache: "no-store" });
+        const json = (await res.json()) as EntrySchema | EntryError;
+        if (!res.ok || !json.ok) {
+          setLoadError(json.ok ? "Could not open this file." : json.error);
+          setSchema(null);
+          return;
+        }
+        modifiedRef.current = json.modifiedTime;
+        setSchema(json);
+        setValues(emptyValues(json.fields));
+        setSelectedRow(null);
+        setConfirmingDelete(false);
+      } catch {
+        setLoadError("Could not reach the server. Check your connection.");
         setSchema(null);
-        return;
+      } finally {
+        setLoading(false);
       }
-      setSchema(json);
-      setValues(emptyValues(json.fields));
-      setSelectedRow(null);
-      setConfirmingDelete(false);
-    } catch {
-      setLoadError("Could not reach the server. Check your connection.");
-    } finally {
-      setLoading(false);
-    }
-  }, [fileId]);
+    },
+    [fileId]
+  );
 
   useEffect(() => {
     void load();
@@ -134,7 +147,7 @@ export function DataEntryView({ fileId }: DataEntryViewProps) {
   }
 
   function pickRow(row: EntryTailRow) {
-    if (!schema || busy || !row.editable) return;
+    if (!schema || reloading || !row.editable) return;
     if (selectedRow === row.rowNumber) {
       resetToAddMode();
       return;
@@ -146,67 +159,132 @@ export function DataEntryView({ fileId }: DataEntryViewProps) {
     formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  async function send(
-    method: "POST" | "PATCH" | "DELETE",
-    body: Record<string, unknown>,
-    which: Exclude<Busy, null>
-  ) {
-    if (!schema || busy) return;
-    setBusy(which);
-    setNotice(null);
-    try {
-      const res = await fetch(`/api/data/${fileId}`, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...body,
-          expectedModifiedTime: schema.modifiedTime,
-        }),
-      });
-      const json = (await res.json()) as EntryAppendResult | EntryError;
-      if (!res.ok || !json.ok) {
-        setNotice({
-          type: "error",
-          text: json.ok ? "Could not save." : json.error,
-        });
-        return;
-      }
-      setSchema({
-        ...schema,
-        modifiedTime: json.modifiedTime,
-        currentBalance:
-          schema.mode === "ledger" ? json.newBalance : schema.currentBalance,
-        tail: json.tail,
-      });
-      setSelectedRow(null);
-      setConfirmingDelete(false);
-      setValues(emptyValues(schema.fields));
-      setNotice({
-        type: "ok",
-        text:
-          which === "add"
-            ? `Added to Drive (row ${json.rowNumber}).`
-            : which === "update"
-              ? `Row ${json.rowNumber} updated in Drive.`
-              : `Row ${json.rowNumber} deleted from Drive.`,
-      });
-    } catch {
-      setNotice({
-        type: "error",
-        text: "Could not reach the server. Nothing was changed. Please try again.",
-      });
-    } finally {
-      setBusy(null);
+  // Warn before closing the tab while Drive is still saving.
+  useEffect(() => {
+    if (pending === 0) return;
+    function warn(event: BeforeUnloadEvent) {
+      event.preventDefault();
     }
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [pending]);
+
+  async function recover(message: string) {
+    queueRef.current = [];
+    setPending(0);
+    setSaved(false);
+    setReloading(true);
+    setNotice({
+      type: "error",
+      text: `${message} That change was not saved, so the list was reloaded from Drive.`,
+    });
+    await load(true);
+    setReloading(false);
+  }
+
+  /** Sends queued changes one by one, in the order they were made. */
+  async function pump() {
+    if (runningRef.current) return;
+    runningRef.current = true;
+    try {
+      while (queueRef.current.length > 0) {
+        const op = queueRef.current[0];
+        const method =
+          op.type === "add" ? "POST" : op.type === "update" ? "PATCH" : "DELETE";
+        const payload =
+          op.type === "add"
+            ? { values: op.values }
+            : op.type === "update"
+              ? { rowNumber: op.rowNumber, values: op.values }
+              : { rowNumber: op.rowNumber };
+
+        let json: EntryAppendResult | EntryError;
+        try {
+          const res = await fetch(`/api/data/${fileId}`, {
+            method,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ...payload,
+              expectedModifiedTime: modifiedRef.current,
+            }),
+          });
+          json = (await res.json()) as EntryAppendResult | EntryError;
+          if (!res.ok && json.ok) json = { ok: false, error: "Could not save." };
+        } catch {
+          await recover("Could not reach the server.");
+          return;
+        }
+
+        if (!json.ok) {
+          await recover(json.error);
+          return;
+        }
+
+        queueRef.current.shift();
+        modifiedRef.current = json.modifiedTime;
+        setPending(queueRef.current.length);
+
+        if (queueRef.current.length === 0) {
+          // Everything is saved: replace the on-screen guess with Drive's answer.
+          const done = json;
+          setSchema((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  modifiedTime: done.modifiedTime,
+                  currentBalance:
+                    prev.mode === "ledger"
+                      ? done.newBalance
+                      : prev.currentBalance,
+                  nextRow: done.nextRow,
+                  tail: done.tail,
+                }
+              : prev
+          );
+          setSaved(true);
+        }
+      }
+    } finally {
+      runningRef.current = false;
+    }
+  }
+
+  function enqueue(op: EntryOp) {
+    setNotice(null);
+    setSaved(false);
+    setSchema((prev) => (prev ? { ...prev, ...applyOptimistic(prev, prev, op) } : prev));
+    queueRef.current.push(op);
+    setPending(queueRef.current.length);
+    void pump();
   }
 
   function submit(event: SyntheticEvent) {
     event.preventDefault();
-    if (editing && selectedRow !== null) {
-      void send("PATCH", { rowNumber: selectedRow, values }, "update");
-    } else {
-      void send("POST", { values }, "add");
+    if (!schema || reloading) return;
+
+    const error = validateEntry(
+      schema,
+      values,
+      editing,
+      selected?.values
+    );
+    if (error) {
+      setNotice({ type: "error", text: error });
+      return;
     }
+
+    if (editing && selectedRow !== null) {
+      enqueue({ type: "update", rowNumber: selectedRow, values: { ...values } });
+    } else {
+      enqueue({ type: "add", values: { ...values } });
+    }
+    resetToAddMode();
+  }
+
+  function confirmDelete() {
+    if (selectedRow === null || reloading) return;
+    enqueue({ type: "delete", rowNumber: selectedRow });
+    resetToAddMode();
   }
 
   const backLink = (
@@ -303,7 +381,7 @@ export function DataEntryView({ fileId }: DataEntryViewProps) {
             <button
               type="button"
               onClick={resetToAddMode}
-              disabled={busy !== null}
+              disabled={reloading}
               className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-sm)] px-2.5 text-xs font-medium text-muted transition-colors hover:bg-surface-muted hover:text-foreground disabled:opacity-60"
             >
               <Plus className="h-3.5 w-3.5" aria-hidden />
@@ -361,6 +439,25 @@ export function DataEntryView({ fileId }: DataEntryViewProps) {
           </p>
         ) : null}
 
+        {pending > 0 ? (
+          <p
+            role="status"
+            className="flex items-center gap-2 text-xs text-muted"
+          >
+            <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden />
+            Saving {pending} change{pending === 1 ? "" : "s"} to Drive in the
+            background. You can keep working.
+          </p>
+        ) : saved ? (
+          <p
+            role="status"
+            className="flex items-center gap-2 text-xs text-emerald-600 dark:text-emerald-400"
+          >
+            <CircleCheck className="h-3.5 w-3.5" aria-hidden />
+            All changes saved to Drive.
+          </p>
+        ) : null}
+
         {notice ? (
           <p
             role="status"
@@ -395,22 +492,16 @@ export function DataEntryView({ fileId }: DataEntryViewProps) {
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                disabled={busy !== null}
-                onClick={() =>
-                  void send("DELETE", { rowNumber: selectedRow }, "delete")
-                }
+                disabled={reloading}
+                onClick={confirmDelete}
                 className="inline-flex h-10 items-center gap-2 rounded-[var(--radius-md)] bg-red-600 px-3.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {busy === "delete" ? (
-                  <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden />
-                ) : (
-                  <Trash2 className="h-4 w-4" aria-hidden />
-                )}
-                {busy === "delete" ? "Deleting…" : "Yes, delete"}
+                <Trash2 className="h-4 w-4" aria-hidden />
+                Yes, delete
               </button>
               <button
                 type="button"
-                disabled={busy !== null}
+                disabled={reloading}
                 onClick={() => setConfirmingDelete(false)}
                 className="inline-flex h-10 items-center gap-2 rounded-[var(--radius-md)] border border-border bg-surface px-3.5 text-sm font-medium text-foreground hover:bg-surface-muted disabled:opacity-60"
               >
@@ -423,33 +514,25 @@ export function DataEntryView({ fileId }: DataEntryViewProps) {
           <div className="flex flex-col gap-2 sm:flex-row">
             <button
               type="submit"
-              disabled={busy !== null}
+              disabled={reloading}
               className={cn(
                 "inline-flex h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-md)] bg-accent px-4 text-sm font-semibold text-accent-foreground sm:w-auto",
                 "transition-[opacity,transform] duration-[var(--motion-fast)] ease-[var(--ease-out)]",
                 "hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
               )}
             >
-              {busy === "add" || busy === "update" ? (
-                <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden />
-              ) : editing ? (
+              {editing ? (
                 <Save className="h-4 w-4" aria-hidden />
               ) : (
                 <Plus className="h-4 w-4" aria-hidden />
               )}
-              {busy === "add"
-                ? "Adding to Drive…"
-                : busy === "update"
-                  ? "Updating Drive…"
-                  : editing
-                    ? "Update"
-                    : "Add"}
+              {editing ? "Update" : "Add"}
             </button>
 
             {editing ? (
               <button
                 type="button"
-                disabled={busy !== null}
+                disabled={reloading}
                 onClick={() => setConfirmingDelete(true)}
                 className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-md)] border border-red-500/40 px-4 text-sm font-semibold text-red-600 transition-colors hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto dark:text-red-400"
               >
@@ -519,11 +602,19 @@ export function DataEntryView({ fileId }: DataEntryViewProps) {
                         row.editable
                           ? "cursor-pointer transition-colors hover:bg-surface-muted"
                           : "opacity-60",
+                        row.pending && "opacity-70",
                         active && "bg-accent-soft hover:bg-accent-soft"
                       )}
                     >
                       <td className="px-3 py-2.5 text-xs text-muted">
-                        {row.rowNumber}
+                        {row.pending ? (
+                          <LoaderCircle
+                            className="h-3.5 w-3.5 animate-spin"
+                            aria-label="Saving"
+                          />
+                        ) : (
+                          row.rowNumber
+                        )}
                       </td>
                       {row.cells.map((cell, c) => (
                         <td

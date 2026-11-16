@@ -365,6 +365,9 @@ export type WorkbookDescription = {
   sheetName: string;
   fields: EntryField[];
   currentBalance: number | null;
+  nextRow: number;
+  fieldCells: Record<string, number>;
+  balanceCell: number;
   tail: EntryTail;
 };
 
@@ -408,15 +411,33 @@ export async function describeWorkbook(
         placeholder: "0",
       }
     );
+    const showCols = Math.min(loc.colCount, 10);
+    const fieldCells: Record<string, number> = {};
+    const place = (key: string, col: number) => {
+      if (col > 0 && col <= showCols) fieldCells[key] = col - 1;
+    };
+    place("date", loc.cols.date);
+    place("description", loc.cols.description);
+    place("fileNo", loc.cols.fileNo);
+    place("debit", loc.cols.debit);
+    place("credit", loc.cols.credit);
     return {
       mode: "ledger",
       sheetName: loc.ws.name,
       fields,
       currentBalance: currentLedgerBalance(loc),
+      nextRow: loc.lastRow + 1,
+      fieldCells,
+      balanceCell: loc.cols.balance <= showCols ? loc.cols.balance - 1 : -1,
       tail: buildTail(loc),
     };
   }
 
+  const showColsGeneral = Math.min(loc.colCount, 10);
+  const generalCells: Record<string, number> = {};
+  for (const f of loc.fieldCols) {
+    if (f.col <= showColsGeneral) generalCells[`c${f.col}`] = f.col - 1;
+  }
   return {
     mode: "general",
     sheetName: loc.ws.name,
@@ -426,6 +447,9 @@ export async function describeWorkbook(
       type: "text" as const,
     })),
     currentBalance: null,
+    nextRow: loc.lastRow + 1,
+    fieldCells: generalCells,
+    balanceCell: -1,
     tail: buildTail(loc),
   };
 }
@@ -487,6 +511,7 @@ export type AppendOutcome = {
   buffer: Buffer;
   rowNumber: number;
   newBalance: number | null;
+  nextRow: number;
   tail: EntryTail;
 };
 
@@ -580,6 +605,7 @@ export async function appendRowToWorkbook(
     buffer: Buffer.from(out as ArrayBuffer),
     rowNumber: newRowNumber,
     newBalance,
+    nextRow: newRowNumber + 1,
     tail,
   };
 }
@@ -756,6 +782,7 @@ export async function updateRowInWorkbook(
     buffer: Buffer.from(out as ArrayBuffer),
     rowNumber,
     newBalance,
+    nextRow: loc.lastRow + 1,
     tail: buildTail(loc),
   };
 }
@@ -797,6 +824,7 @@ export async function deleteRowFromWorkbook(
     buffer: Buffer.from(out as ArrayBuffer),
     rowNumber,
     newBalance,
+    nextRow: lastRow,
     tail: buildTail(next),
   };
 }

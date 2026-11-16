@@ -140,6 +140,7 @@ async function mutateFile(
     modifiedTime: result.modifiedTime,
     rowNumber: result.outcome.rowNumber,
     newBalance: result.outcome.newBalance,
+    nextRow: result.outcome.nextRow,
     tail: result.outcome.tail,
   };
   return NextResponse.json(payload, { headers: NO_STORE });

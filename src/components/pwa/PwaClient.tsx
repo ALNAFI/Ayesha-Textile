@@ -22,11 +22,22 @@ export function PwaClient() {
       // Persistence is optional and must not affect the page.
     }
 
+    let cleanupVisibility: () => void = () => {};
+
     if (process.env.NODE_ENV === "production" && "serviceWorker" in navigator) {
       navigator.serviceWorker
         .register("/sw.js")
         .then((registration) => {
           registration.waiting?.postMessage({ type: "SKIP_WAITING" });
+          // Look for a new deploy whenever the app returns to the screen.
+          const check = () => {
+            if (document.visibilityState === "visible") {
+              void registration.update().catch(() => {});
+            }
+          };
+          document.addEventListener("visibilitychange", check);
+          cleanupVisibility = () =>
+            document.removeEventListener("visibilitychange", check);
         })
         .catch(() => {
           // Installation can fail in private modes; the app still works online.
@@ -51,6 +62,7 @@ export function PwaClient() {
       window.removeEventListener("online", sync);
       window.removeEventListener("offline", sync);
       window.fetch = originalFetch;
+      cleanupVisibility();
     };
   }, []);
 

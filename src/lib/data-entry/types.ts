@@ -20,6 +20,8 @@ export type EntryTailRow = {
   values: Record<string, string>;
   /** False for rows that must be changed in Excel (e.g. opening balance). */
   editable: boolean;
+  /** Client only: shown on screen, still being saved to Drive. */
+  pending?: boolean;
 };
 
 export type EntryTail = {
@@ -38,6 +40,12 @@ export type EntrySchema = {
   fields: EntryField[];
   /** Ledger only: running balance after the last row. */
   currentBalance: number | null;
+  /** Excel row number where the next new entry will be written. */
+  nextRow: number;
+  /** Field key -> index in `tail.rows[].cells` (fields outside the table are missing). */
+  fieldCells: Record<string, number>;
+  /** Ledger only: index of the Balance column in `cells`, or -1. */
+  balanceCell: number;
   tail: EntryTail;
 };
 
@@ -52,6 +60,7 @@ export type EntryAppendResult = {
   modifiedTime: string | null;
   rowNumber: number;
   newBalance: number | null;
+  nextRow: number;
   tail: EntryTail;
 };
 

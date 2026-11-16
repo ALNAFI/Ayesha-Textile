@@ -1,8 +1,7 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState } from "react";
 import { LoaderCircle, LogOut } from "lucide-react";
-import { logoutAction } from "@/lib/auth/actions";
 import { cacheClear } from "@/lib/client-cache";
 import { clearCachedPages } from "@/lib/page-cache";
 import { cn } from "@/lib/utils";
@@ -12,7 +11,7 @@ type LogoutButtonProps = {
 };
 
 export function LogoutButton({ className }: LogoutButtonProps) {
-  const [pending, startTransition] = useTransition();
+  const [pending, setPending] = useState(false);
 
   return (
     <button
@@ -20,11 +19,19 @@ export function LogoutButton({ className }: LogoutButtonProps) {
       disabled={pending}
       onClick={() => {
         void (async () => {
-          await cacheClear();
-          await clearCachedPages();
-          startTransition(() => {
-            void logoutAction();
-          });
+          setPending(true);
+          try {
+            // Sign out first: it must work even when the cached copies cannot be cleared.
+            await fetch("/api/auth/logout", {
+              method: "POST",
+              cache: "no-store",
+            }).catch(() => undefined);
+            await cacheClear().catch(() => undefined);
+            await clearCachedPages().catch(() => undefined);
+          } finally {
+            // Full page load, so a cached app shell cannot stay on screen.
+            window.location.assign("/login");
+          }
         })();
       }}
       className={cn(
